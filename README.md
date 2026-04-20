@@ -219,8 +219,9 @@ npm link redis-tracker
 ## AI Prompt
 
 ````
-Use the package docs and the full prompt in [SKILL.md](./SKILL.md).
+Read and strictly follow the SKILL.md file to implement the npm package "redis-tracker".
 
-- npm package: `https://www.npmjs.com/package/redis-tracker`
-- skill file: `./SKILL.md`
+References:
+NPM: https://www.npmjs.com/package/redis-tracker
+SKILL.md: https://github.com/NPM-public-repo-Jaykumar/redis-tracker/blob/main/SKILL.md
 ````
