@@ -1,0 +1,44 @@
+{
+  "name": "redis-tracker",
+  "version": "1.1.6",
+  "description": "Redis based RPC tracking counters",
+  "author": "codezeros",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NPM-public-repo-Jaykumar/redis-tracker.git"
+  },
+  "homepage": "https://github.com/NPM-public-repo-Jaykumar/redis-tracker#readme",
+  "bugs": {
+    "url": "https://github.com/NPM-public-repo-Jaykumar/redis-tracker/issues"
+  },
+  "keywords": [
+    "redis",
+    "tracker",
+    "metrics",
+    "analytics",
+    "rpc",
+    "typescript",
+    "jkg",
+    "jaykumar-gohil"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "SKILL.md"
+  ],
+  "scripts": {
+    "build": "tsc && node scripts/obfuscate-dist.js",
+    "build:plain": "tsc",
+    "prepublishOnly": "npm run build",
+    "postpublish": "npm run postpublish-release && npm run public-postpublish-release",
+    "postpublish-release": "node scripts/postpublish-release.js",
+    "public-postpublish-release": "node scripts/public-postpublish-release.js"
+  },
+  "dependencies": {
+    "ioredis": "^5.0.0"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "^5.4.1"
+  }
+}
