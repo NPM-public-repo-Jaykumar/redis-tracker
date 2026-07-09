@@ -15,6 +15,12 @@ export type TrackOptions = {
     global_month?: boolean;
     global_year?: boolean;
 };
+export type TimeBucket = "sec" | "min" | "hour" | "day" | "month" | "year";
+export type TimeBucketConfig = {
+    enable?: boolean;
+    expiry_in_sec?: number;
+};
+export type TimeConfig = Partial<Record<TimeBucket, TimeBucketConfig>>;
 export type RedisAuth = {
     username?: string;
     password?: string;
