@@ -228,7 +228,7 @@ year
 
 ## Demo
 
-- TS StackBlitz: <a href="https://stackblitz.com/edit/stackblitz-starters-r5rdcmc5?file=server.ts" target="_blank" rel="noopener noreferrer">Open TS demo</a>
+- TS StackBlitz: <a href="https://stackblitz.com/edit/stackblitz-starters-vfzwhow5?file=server.ts" target="_blank" rel="noopener noreferrer">Open TS demo</a>
 - JS StackBlitz: <a href="https://stackblitz.com/edit/stackblitz-starters-akuiwtmr?file=server.js" target="_blank" rel="noopener noreferrer">Open JS demo</a>
 
 ## Build Package
@@ -251,10 +251,10 @@ npm link redis-tracker
 
 ## AI Prompt
 
-````
+```
 Read and strictly follow the SKILL.md file to implement the npm package "redis-tracker".
 
 References:
 NPM: https://www.npmjs.com/package/redis-tracker
 SKILL.md: https://github.com/NPM-public-repo-Jaykumar/redis-tracker/blob/main/SKILL.md
-````
+```
