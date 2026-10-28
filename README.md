@@ -130,7 +130,6 @@ statis.timeConfig({
 Call `statis.timeConfig(...)` once during app startup. All `trackAction(...)` calls will use that config.
 
 If `statis.timeConfig(...)` is not called, all time buckets use default enable and expiry values.
-`expiry_in_sec` must be a non-negative integer in seconds.
 
 Default time config:
 
@@ -144,6 +143,8 @@ Default time config:
   year: { enable: true, expiry_in_sec: 10 * 365 * 24 * 60 * 60 }, // 10 years
 }
 ```
+
+`expiry_in_sec` must be a non-negative integer in seconds.
 
 Track:
 
