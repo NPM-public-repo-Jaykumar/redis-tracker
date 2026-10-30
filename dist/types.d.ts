@@ -1,20 +1,6 @@
-export type TrackOptions = {
-    prefix: string;
-    module_name: string;
-    timestamp_ms?: number;
-    per_sec?: boolean;
-    per_min?: boolean;
-    per_hour?: boolean;
-    per_day?: boolean;
-    per_month?: boolean;
-    per_year?: boolean;
-    global_sec?: boolean;
-    global_min?: boolean;
-    global_hour?: boolean;
-    global_day?: boolean;
-    global_month?: boolean;
-    global_year?: boolean;
-};
+import type { IncomingMessage } from "node:http";
+import type Redis from "ioredis";
+import type { Cluster } from "ioredis";
 export type TimeBucket = "sec" | "min" | "hour" | "day" | "month" | "year";
 export type TimeBucketConfig = {
     enable?: boolean;
@@ -34,4 +20,86 @@ export type RedisCluster = RedisAuth & {
         host: string;
         port: number;
     }[];
+};
+export type BuiltInType = "API" | "WEB" | "GRAPHQL" | "RPC" | "WSS" | "SSE" | "GRPC" | "OTHER" | "STATIC" | "OUT";
+export type Hit = {
+    type: string;
+    action: string;
+    name: string;
+};
+export type RedisOption = string | RedisStandalone | RedisCluster | {
+    client: Redis | Cluster;
+    type: "standalone" | "cluster";
+};
+export type InitOptions = {
+    redis: RedisOption;
+    prefix: string;
+    timeConfig?: TimeConfig;
+    ignore?: {
+        paths?: string[];
+        methods?: string[];
+        bots?: boolean;
+    };
+    track?: Partial<Record<BuiltInType, boolean>>;
+    global?: {
+        total?: boolean;
+        perType?: boolean;
+    };
+    failures?: boolean;
+    types?: {
+        path: string;
+        type: string;
+    }[];
+    operations?: {
+        path: string;
+        type: string;
+        read: (body: any) => unknown;
+    }[];
+    limits?: {
+        maxNamesPerType?: number;
+        collapseAfter?: number;
+    };
+    name?: (req: IncomingMessage) => Hit | undefined;
+    enabled?: boolean;
+    dashboard?: DashboardOptions;
+};
+export type DashboardOptions = {
+    enable?: boolean;
+    url?: string;
+    username?: string;
+    password?: string;
+};
+export type DashboardConfig = {
+    path: string;
+    username?: string;
+    password?: string;
+};
+export type AutoConfig = {
+    prefix: string;
+    ignore: {
+        paths: string[];
+        methods: string[];
+        bots: boolean;
+    };
+    track: Record<BuiltInType, boolean>;
+    global: {
+        total: boolean;
+        perType: boolean;
+    };
+    failures: boolean;
+    types: {
+        path: string;
+        type: string;
+    }[];
+    operations: {
+        path: string;
+        type: string;
+        read: (body: any) => unknown;
+    }[];
+    limits: {
+        maxNamesPerType: number;
+        collapseAfter: number;
+    };
+    name?: (req: IncomingMessage) => Hit | undefined;
+    dashboard: DashboardConfig | null;
 };

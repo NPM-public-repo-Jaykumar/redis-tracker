@@ -1,1 +1,1 @@
-export declare const INCR_WITH_EXPIRE = "\nlocal v = redis.call(\"INCR\", KEYS[1])\nif v == 1 then\n  redis.call(\"EXPIRE\", KEYS[1], tonumber(ARGV[1]))\nend\nreturn v\n";
+export declare const INCRBY_WITH_EXPIRE = "\nlocal v = redis.call(\"INCRBY\", KEYS[1], ARGV[1])\nif v == tonumber(ARGV[1]) then\n  redis.call(\"EXPIRE\", KEYS[1], tonumber(ARGV[2]))\nend\nreturn v\n";

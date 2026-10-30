@@ -1,6 +1,6 @@
 ---
 name: redis-tracker
-description: Use this skill when integrating the `redis-tracker` npm package into an existing codebase, especially to inspect Redis setup, choose the correct startup integration point, place `trackAction(...)` cleanly, and expose read/stat helpers or endpoints.
+description: Use this skill when integrating the `redis-tracker` npm package into an existing codebase, especially to inspect Redis setup, choose the correct startup integration point, turn on automatic request tracking with `statis.init(...)`, choose its options, and expose read/stat helpers or endpoints.
 ---
 
 # redis-tracker
@@ -11,99 +11,99 @@ You are helping integrate the npm package `redis-tracker` into a codebase.
 
 ## What `redis-tracker` is for
 
-- It stores Redis-based action counters.
-- It creates module-level and global usage buckets.
-- It is useful for API usage stats, RPC usage stats, route tracking, worker/job tracking, and event analytics.
+- It stores Redis-based request counters per second, minute, hour, day, month and year.
+- One `statis.init(...)` call counts every request the app handles automatically: API calls, page views, GraphQL, JSON-RPC, WebSockets, Socket.IO events, SSE and gRPC. Static files and outgoing calls can be turned on.
+- There is no manual tracking API. Work that never arrives as a request (cron jobs, queue workers, scripts, business events) is not counted. If the user needs that, tell them redis-tracker only counts incoming requests and, with `OUT`, outgoing calls.
 
 ## Package exports
 
-- `statis`
-- `trackAction`
+- `statis` (only `statis.init(...)`)
 - `searchKeys`
 - `statRedis`
 
 ## Important API facts
 
-- Redis must be initialized once during startup.
-- Setup methods:
-- `statis.redis.standalone({ host, port })`
-- `statis.redis.standalone({ host, port, username, password })`
-- `statis.redis.cluster({ nodes: [{ host, port }, ...] })`
-- `statis.redis.cluster({ nodes: [{ host, port }, ...], username, password })`
-- `statis.redis.object(existingRedisClient, "standalone")`
-- `statis.redis.object(existingRedisCluster, "cluster")`
-- Track method:
+- Call `statis.init(...)` once, at the top of the entry file, before the server starts listening.
+- Minimal call:
 
 ```ts
-trackAction({
+import { statis } from "redis-tracker";
+
+statis.init({
+  redis: "redis://127.0.0.1:6379",
   prefix: "qa-server",
-  module_name: "profile-view-api",
 });
 ```
 
-- Full track options:
+- `redis` and `prefix` are passed to `init` directly; the package reads no environment variables.
+- `redis` accepts one of:
+- a `redis://` or `rediss://` (TLS) URL string, such as `"redis://default:secret@host:6379"`
+- `{ host, port, username?, password? }` (standalone)
+- `{ nodes: [{ host, port }, ...], username?, password? }` (cluster)
+- `{ client: existingIoredisClient, type: "standalone" | "cluster" }` (reuse an existing client)
+- All options and defaults:
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `redis` | required | Redis connection |
+| `prefix` | required | First part of every key; not empty, no `:` |
+| `timeConfig` | all buckets on; 1h / 1d / 1d / 30d / 180d / 10y | Buckets to keep and their `expiry_in_sec`, e.g. `{ sec: { enable: false }, day: { expiry_in_sec: 90 * 24 * 60 * 60 } }` |
+| `ignore.paths` | `[]` | Paths to skip, e.g. `["/health", "/metrics"]`; `"/admin/*"` matches a subtree |
+| `ignore.methods` | `["OPTIONS", "HEAD"]` | Methods to skip |
+| `ignore.bots` | `false` | Skip crawlers by user agent |
+| `track` | all on except `STATIC` and `OUT` | Turn types on or off: `API`, `WEB`, `GRAPHQL`, `RPC`, `WSS`, `SSE`, `GRPC`, `OTHER`, `STATIC`, `OUT` |
+| `global.total` | `true` | `{prefix}:global` keys |
+| `global.perType` | `true` | `{prefix}:{TYPE}:global` keys |
+| `failures` | `false` | Extra `:5xx` key for responses with status 500 or higher |
+| `types` | `[]` | Custom types by path, e.g. `{ path: "/webhooks/*", type: "HOOK" }` |
+| `operations` | `[]` | Read an operation name from the body, e.g. `{ path: "/action", type: "ACT", read: (body) => body.action }` |
+| `limits.maxNamesPerType` | `200` | Names beyond this are counted as `<other>` |
+| `limits.collapseAfter` | `50` | A URL part with more distinct values becomes `<slug>` |
+| `name` | — | `(req) => ({ type, action, name })` to name any request yourself |
+| `enabled` | `true` | `false` turns tracking off (e.g. in tests) |
+| `dashboard` | off | `{ enable: true, url?: "redis-tracker/dashboard", username?, password? }` serves a built-in dashboard from the app's own server |
+
+- Key layout:
+- `{prefix}:{TYPE}:{ACTION}:{name}:{bucket}:{bucket_id}`
+- `{prefix}:{TYPE}:{ACTION}:{name}:5xx:{bucket}:{bucket_id}` (only with `failures: true`)
+- `{prefix}:global:{bucket}:{bucket_id}` (all requests; WebSocket messages, Socket.IO events and outgoing calls are not included)
+- `{prefix}:{TYPE}:global:{bucket}:{bucket_id}`
+- `name` is the route without the leading `/`. Numbers, UUIDs, ObjectIds, long hex strings, `0x` addresses and long tokens become `<id>`. Express routes use their own param names (`/users/:userId` → `users/<userId>`).
+- Bucket ids are in IST (UTC+5:30).
+- Types:
+
+| TYPE | ACTION | Example key |
+| --- | --- | --- |
+| `API` | HTTP method | `qa-server:API:GET:api/users/<id>:min:2026-10-29-23-35` |
+| `WEB` | HTTP method | `qa-server:WEB:GET:products/<id>:min:…` |
+| `GRAPHQL` | `QUERY` / `MUTATION` / `SUBSCRIPTION` | `qa-server:GRAPHQL:QUERY:GetUser:min:…` |
+| `RPC` | `CALL` / `NOTIFY` | `qa-server:RPC:CALL:eth_getBalance:min:…` |
+| `WSS` | `CONNECT` / `MESSAGE` / `EVENT` | `qa-server:WSS:CONNECT:ws/chat:min:…` |
+| `SSE` | HTTP method | `qa-server:SSE:GET:events/prices:min:…` |
+| `GRPC` | `CALL` | `qa-server:GRPC:CALL:user.UserService/GetUser:min:…` |
+| `OTHER` | HTTP method | `qa-server:OTHER:GET:<unmatched>:min:…` |
+| `STATIC` (off) | HTTP method | `qa-server:STATIC:GET:assets/<file>:min:…` |
+| `OUT` (off) | HTTP method | `qa-server:OUT:GET:rpc-testnet.supra.com/rpc/v1/block:min:…` |
+
+- GraphQL and JSON-RPC are recognised from `req.body`, so the app must parse JSON bodies (for example `express.json()`). Otherwise those calls count as `API`. This works with Express and NestJS; on Fastify, Koa and Next.js they count as `API`.
+- Where to call `statis.init(...)`:
+- Express, Fastify, Koa, plain Node: top of `server.ts` / `index.js`
+- NestJS: `main.ts`, before `NestFactory.create()`
+- Next.js: `instrumentation.ts`, inside `register()`, guarded by `if (process.env.NEXT_RUNTIME === "nodejs")` and loading the package with `await import("redis-tracker")`
+- `prefix` must stay a single stable app/environment value such as `qa-server`, `prod-server`, or `payments-api`. Never put dynamic values such as `userId`, `walletAddress`, `tenantId` or `sessionId` inside it.
+- Use the same `prefix` in every service that should share one `global` total.
+
+### Reading counts
+
+- `searchKeys(pattern)` returns matching keys across standalone or cluster nodes.
+- `statRedis` proxies the active Redis client for commands like `get`, `ttl`, `del`.
 
 ```ts
-trackAction({
-  prefix: "qa-server",
-  module_name: "profile-view-api",
-  timestamp_ms: Date.now(),
-  per_sec: true,
-  per_min: true,
-  per_hour: true,
-  per_day: true,
-  per_month: true,
-  per_year: true,
-  global_sec: true,
-  global_min: true,
-  global_hour: true,
-  global_day: true,
-  global_month: true,
-  global_year: true,
-});
+const keys = await searchKeys("qa-server:API:*:day:2026-10-29");
+const counts = await Promise.all(
+  keys.map(async (key) => ({ key, value: Number((await statRedis.get(key)) || 0) })),
+);
 ```
-
-- If the user wants only selected periods like only `hour` / `day` / `month`, disable the rest explicitly, for example:
-
-```ts
-trackAction({
-  prefix: "qa-server",
-  module_name: "profile-view-api",
-  per_sec: false,
-  per_min: false,
-  per_hour: true,
-  per_day: true,
-  per_month: true,
-  per_year: false,
-  global_sec: false,
-  global_min: false,
-  global_hour: true,
-  global_day: true,
-  global_month: true,
-  global_year: false,
-});
-```
-
-- If bucket flags are omitted, all buckets are enabled by default.
-- Do not use the old field name `server`; always use `prefix`.
-- Redis key patterns:
-- `{prefix}:{module_name}:{type}:{bucket_id}`
-- `{prefix}:global:{type}:{bucket_id}`
-- Global keys are based only on `prefix`, not `module_name`.
-- If one overall global total is desired across multiple APIs/modules, reuse the same stable `prefix` everywhere and change only `module_name`.
-- `prefix` must stay a single stable app/environment value such as `qa-server`, `prod-server`, or `payments-api`.
-- Never put dynamic values such as `userId`, `walletAddress`, `accountId`, `tenantId`, `chainId`, or `sessionId` inside `prefix`.
-- For mixed/specific tracking, keep the same `prefix` and encode the specific identity inside `module_name`.
-- Recommended specific `module_name` pattern: `<module_name>:<id_type>:<id_value>`.
-- Supported bucket types:
-- `sec`
-- `min`
-- `hour`
-- `day`
-- `month`
-- `year`
-- `searchKeys(pattern)` returns matching keys.
-- `statRedis` proxies the active Redis client for commands like `get`, `set`, `del`, etc.
 
 ## Workflow
 
@@ -122,47 +122,35 @@ trackAction({
 - Find where Redis is initialized and where the best startup integration point is.
 - Find whether the current Redis usage is standalone or cluster.
 - Find whether the codebase already uses `ioredis`, a Redis wrapper, a DI container, or a shared service module.
-- Find where request handling actually starts, such as routes, controllers, RPC handlers, workers, jobs, queue consumers, or cron flows.
-- Find whether there is already a request context or unique identifier available such as `userId`, `accountId`, `walletAddress`, `tenantId`, `sessionId`, or `chainId`.
+- Find the framework and entry file (Express, Fastify, Koa, NestJS `main.ts`, Next.js `instrumentation.ts`, plain Node).
+- Find which kinds of traffic the app serves: REST/JSON APIs, HTML pages, GraphQL, JSON-RPC, WebSockets or Socket.IO, SSE, gRPC, static files, and outgoing calls to other services.
+- Find whether JSON bodies are parsed (e.g. `express.json()`), which GraphQL/JSON-RPC detection needs.
+- Find health checks, metrics and other noisy paths that should go in `ignore.paths`.
+- Find route groups that deserve their own `types` (webhooks, admin) and single-URL endpoints whose operation name sits in a custom body field (`operations`).
+- Find work that never arrives as a request (workers, jobs, cron). Report it as not counted by redis-tracker.
 - Find whether the project already has analytics/statistics endpoints where `searchKeys(...)` and `statRedis.get(...)` can fit naturally.
 - Find whether the project is UI-only or whether a backend/API layer exists where a Redis search/stats API can be added.
-- Find whether a `.env` file exists in the project root.
-- Find whether the `dotenv` package (or equivalent env loader like `dotenv-flow`, `dotenv-safe`) is already installed and used.
+- Find where the project keeps its config (env files, a config module, a secrets manager), so a new Redis URL can live with it.
 - Tell me all important findings before suggesting code changes.
 
 ## Best implementation guidance
 
-- If Redis already exists, the best implementation is usually reusing the existing client with `statis.redis.object(...)`.
-- If Redis does not exist yet, initialize `redis-tracker` once in the main startup/bootstrap layer using env variables.
-- Prefer common tracking for generic module usage analytics.
-- Prefer specific tracking only where user/entity/session scoped visibility is actually required.
+- If Redis already exists, reuse the existing client with `statis.init({ redis: { client, type }, prefix })`.
+- If Redis does not exist yet, initialize `redis-tracker` once in the main startup/bootstrap layer, passing a Redis URL (or host/port) and `prefix` to `statis.init(...)`.
 - Keep `prefix` single, stable, and meaningful across the app/environment.
-- Never encode specific ids inside `prefix`; specific ids must always go inside `module_name`.
-- Keep `module_name` stable and readable for common tracking.
-- For specific tracking, use a structured `module_name` such as `current-user-api:userId:123` or `wallet-balance-api:walletAddress:0xabc`.
-- Do not initialize Redis per request.
-- Add `trackAction(...)` where the business action starts, not deep inside random utility code.
-- If the project already has a clean middleware/interceptor/controller boundary, recommend the cleanest location and explain why it is the best one.
-- Always create a dedicated helper file (e.g., `src/helpers/tracker.ts` or `src/utils/redisTracker.ts`) that exports reusable wrapper functions for `trackAction`, `searchKeys`, and any stat-reading logic. Do not scatter raw `trackAction(...)` calls across the codebase; route them through this helper so configuration stays centralized.
-- When a helper file is created, it must own one shared prefix value internally or from config. Do not accept dynamic prefixes from business code.
+- Put health checks, metrics and the stats endpoint itself in `ignore.paths`.
+- Use `types` to group route families (webhooks, admin) and `operations` for single-URL endpoints whose operation name is in a custom body field.
+- Turn on `OUT` only when counting calls to other services is useful (for example RPC providers or payment APIs).
+- Turn off time buckets that nobody will read, to reduce Redis writes.
+- Do not initialize Redis per request, and call `statis.init(...)` only once.
+- Do not add any tracking code to routes, controllers or services.
 - If the project is not UI-only and a backend/API layer is available, suggest adding an API to fetch Redis keys using wildcard search and list matching keys with values.
 
-## Environment variable handling
+## Connection values
 
-- If Redis is being set up fresh (not reusing an existing client), all connection values (host, port, username, password) must be read from environment variables, never hardcoded.
-- Check whether a `.env` file exists in the project root.
-- If `.env` exists: append the new Redis env variables to it with sensible default values, for example:
-
-```text
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
-REDIS_USERNAME=
-REDIS_PASSWORD=
-```
-
-- If `.env` does not exist: create it at the project root and add the Redis env variables with default values.
-- Check whether `dotenv` (or an equivalent package like `dotenv-flow` or `dotenv-safe`) is already installed and loaded before your entry point runs. If it is not, install `dotenv` and add `import "dotenv/config"` (or `require("dotenv").config()`) at the very top of the main startup/bootstrap file so environment variables are available before any Redis initialization code runs.
-- If the project already reads env variables successfully through another mechanism (e.g., a framework-level env loader, NestJS `ConfigModule`, Next.js built-in support), skip adding `dotenv` manually and note why it is not needed.
+- redis-tracker reads no environment variables. Pass the Redis connection and `prefix` to `statis.init(...)` directly.
+- Reuse the project's existing Redis settings (an ioredis client, or a URL or host/port from its config) as they are. Don't rename them or invent new variable names for the tracker.
+- If Redis is new to the project, keep its URL with the project's other config. Don't hardcode a password in source, and make sure that config is loaded before `statis.init(...)` runs.
 
 ## First response format
 
@@ -170,44 +158,34 @@ REDIS_PASSWORD=
 - Then provide this structure:
 - `Found:`
 - list whether Redis exists or not
-- list the startup/bootstrap/init files you checked
-- list the HTTP/RPC/worker/job entry points you found
-- list any user/entity/session identifiers already available in the codebase
-- list the best common tracking candidates
-- list the best specific tracking candidates
+- list the framework, entry file and startup/bootstrap files you checked
+- list the kinds of traffic found (API, pages, GraphQL, JSON-RPC, WebSockets/Socket.IO, SSE, gRPC, static files, outgoing calls)
+- list noisy paths worth ignoring (health checks, metrics)
+- list route groups that could become custom `types`, and single-URL endpoints that could use `operations`
+- list work that never arrives as a request and so will not be counted
 - list whether the project is UI-only or backend/API changes are possible
-- list whether a `.env` file exists
-- list whether `dotenv` or equivalent is already installed and loaded
+- list where the project keeps its config
 - `Best path:`
-- explain the best Redis integration point
-- explain whether to reuse existing Redis with `statis.redis.object(...)` or add new Redis startup wiring with env variables
-- explain whether `.env` needs to be created or updated, and what variables will be added
-- explain whether `dotenv` needs to be installed or if env loading is already handled
-- explain the best place to add `trackAction(...)`
-- explain whether a helper file will be created and where
+- explain where `statis.init(...)` should go and why
+- explain whether to reuse existing Redis with `redis: { client, type }` or pass a new Redis URL to `statis.init(...)`, and where that URL will come from
+- explain which `statis.init(...)` options you recommend (ignore paths, types to turn on/off, custom types, operations, failures, timeConfig)
 - explain whether read/stat endpoints should be added or attached to existing analytics endpoints
-- explain whether a Redis search/list API should be added when backend/API support exists
 - `Suggested tracking map:`
-- for each important route/API/RPC/job/event, suggest one of:
-- `<item>` `(suggested common tracking)`
-- `<item>` `(suggested specific tracking using <unique-parameter> in module_name)`
+- for each important route family, list the `TYPE` it will be counted under, e.g. `/api/users/* (API)`, `/graphql (GRAPHQL)`, `/ws/chat (WSS)`, `/webhooks/* (custom type HOOK)`
 
 ## If no code access exists
 
-- Ask for the startup/bootstrap file, Redis setup file, and the controller/service/worker files that should be tracked.
+- Ask for the startup/bootstrap file, Redis setup file, and the route/controller files.
 - Then produce the same response format once enough code is provided.
 
 ## Implementation steps to show up front
 
 - `Step-1` Redis integration decision
 - `Step-2` Redis mode confirmation or new Redis setup decision
-- `Step-3` Module candidates confirmation
-- `Step-4` Tracking style decision: common / mixed
-- `Step-5` Mixed tracking suggestion confirmation
-- `Step-6` Tracking period scope decision
-- `Step-7` Unique parameter and `module_name` format decision for specific tracking if needed
-- `Step-8` Redis search/stats API decision if backend is possible
-- `Step-9` Final confirmation and implementation
+- `Step-3` Tracking options (ignored paths, types on/off, custom types, operations, failures)
+- `Step-4` Tracking period scope and expiry decision
+- `Step-5` Redis search/stats API decision if backend is possible
+- `Step-6` Final confirmation and implementation
 
 ## Step questioning rules
 
@@ -222,145 +200,53 @@ REDIS_PASSWORD=
 
 - `Step-1`
 - If Redis already exists in the inspected codebase, ask:
-- `I found an existing Redis setup in <file/path>. Should I reuse this existing Redis connection with statis.redis.object(...)? Reply with "reuse existing" or "add new".`
+- `I found an existing Redis setup in <file/path>. Should I reuse this existing Redis connection with statis.init({ redis: { client, type } })? Reply with "reuse existing" or "add new".`
 - If Redis does not exist in the inspected codebase, ask:
-- `I did not find an existing Redis setup. Do you want me to add Redis integration for this project? I will read connection values from environment variables and update your .env file accordingly. Reply with "yes" or "no".`
+- `I did not find an existing Redis setup. Do you want me to add Redis integration for this project? I will pass the Redis URL and prefix to statis.init(...), keeping the URL with your existing config. Reply with "yes" or "no".`
 - `Step-2`
 - If new Redis setup is needed, ask:
 - `Should I implement standalone Redis or cluster Redis? Reply with "standalone" or "cluster".`
 - If existing Redis is found but the mode is unclear, inspect and then ask only if still needed.
 - `Step-3`
-- Based on the codebase inspection, list all routes/RPCs/workers/jobs where tracking makes sense. For each one include a short reason. Format exactly like this:
-- `- MODULE_NAME (reason why tracking makes sense here)`
-- Then ask: `These are the modules I think are worth tracking. Reply with "all" to confirm all, or list the ones you want to include or exclude.`
-- Discuss any changes the user requests, confirm the final list, then move to Step-4.
+- Show the `statis.init(...)` options you recommend from the inspection: paths for `ignore.paths`, whether to turn `STATIC` or `OUT` on or any other type off, any `types` or `operations`, and whether to enable `failures`.
+- Then ask: `These are the tracking settings I recommend. Reply with "approve" or list the changes.`
 - `Step-4`
-- Ask exactly:
-- `What is the requirement for trackAction()? Do you want "common" usage statistics, or "mixed" tracking?`
-- `If you choose mixed, prefix will still remain a single stable value and only module_name will carry any specific id.`
-- `Reply with "common" or "mixed".`
-- `Step-5`
-- Present the recommended mix of common and specific tracking targets based on your codebase inspection.
-- For every specific target, show the suggested `module_name` format clearly, for example `current-user-api:userId:<value>`.
-- Then ask:
-- `This is my recommended mixed tracking suggestion. Is this okay, or would you like to make any changes? Reply with "approve" or list the changes.`
-- If the user requests changes, discuss and confirm before moving on. Do not proceed until the user explicitly confirms the final tracking map.
-- `Step-6`
 - Ask:
 - `Which time periods do you want to track?`
 - `Options: sec / min / hour / day / month / year`
-- `You can reply with "all" or a comma-separated list such as "hour,day,month".`
-- `Any period not selected will be explicitly set to false so Redis does not store unnecessary buckets.`
-- Confirm back the enabled/disabled breakdown and ask for confirmation before proceeding.
-- `Step-7`
-- If mixed tracking is selected and any modules need specific tracking, ask which unique parameter should be encoded in `module_name`, e.g. `userId`, `walletAddress`, `accountId`, `tenantId`, `chainId`, `sessionId`.
-- Ask for the exact `module_name` pattern to use, for example `current-user-api:userId:<value>`.
-- Make it explicit that `prefix` will remain unchanged and shared across all modules.
-- `Step-8`
+- `You can reply with "all" or a comma-separated list such as "hour,day,month". You can also give an expiry per period, such as "day: 90 days".`
+- Periods not selected are set to `enable: false` in `timeConfig` so Redis does not store unnecessary buckets.
+- Confirm back the enabled/disabled breakdown and expiries, and ask for confirmation before proceeding.
+- `Step-5`
 - If the project is not UI-only and a backend/API layer exists or can be added, ask:
 - `Do you want to create an API to fetch Redis keys with search input using wildcard search, where all matching keys and values are listed? (suggested) Reply with "yes" or "no".`
 - If the project is UI-only or backend changes are not possible, skip this step.
-- `Step-9`
+- `Step-6`
 - Ask for final confirmation before editing code or returning final implementation code.
 - Example: `Everything is confirmed. Should I implement this now? Reply with "implement" or "stop".`
 
-## Options
-
-### Option 1. Common module usage
-
-- Use a shared prefix for the app/environment.
-- Example:
-
-```ts
-trackAction({
-  prefix: "qa-server",
-  module_name: "profile-view-api",
-});
-```
-
-- Best when the goal is endpoint/module usage totals.
-
-### Option 2. Mixed tracking
-
-- Use common tracking for most modules.
-- Use specific tracking only for selected flows that need more detail.
-- Keep one shared stable `prefix` for the whole app/environment.
-- Put any specific id only inside `module_name`.
-- Example common:
-
-```ts
-trackAction({
-  prefix: "qa-server",
-  module_name: "api-1",
-});
-```
-
-- Example specific:
- 
-```ts
-trackAction({
-  prefix: "qa-server",
-  module_name: `current-user-api:userId:${userId}`,
-});
-```
-
-- Another example specific:
-
-```ts
-trackAction({
-  prefix: "qa-server",
-  module_name: `wallet-balance-api:walletAddress:${walletAddress}`,
-});
-```
-
-- Best when most analytics are shared, but some flows need finer segmentation while keeping one shared global series per prefix.
-
-## After the user selects an option
-
-- If the user says common usage, use a stable server/app prefix such as `qa-server`, `prod-server`, `payments-api`, or similar.
-- If the user says mixed tracking and uniqueness is needed for selected modules, keep the same stable prefix and place the unique parameter in `module_name`.
-- Examples of unique parameters:
-- `userId`
-- `walletAddress`
-- `accountId`
-- `tenantId`
-- `chainId`
-- `sessionId`
-- Ask which exact unique parameter should be used in `module_name`.
-- Ask which exact `module_name` pattern should be used.
-- Also suggest which tracked items should stay common and which should become specific.
-
 ## Helper file guidance
 
-- Always create a dedicated helper file (e.g. `src/helpers/tracker.ts`, `src/utils/tracker.ts`) aligned to the project's folder conventions.
-- All `trackAction(...)`, `searchKeys(...)`, and stat-reading calls in controllers, workers, and services must go through this helper, never call the package directly from business logic.
-- The helper must keep one single shared `prefix` value. Do not pass `prefix` from controllers/services on every call.
-- Design the helper based on the confirmed tracking style:
-- If common only: export a single function like `trackModule(moduleName: string)` that uses a shared prefix internally.
-- If mixed: export both variants, one for common modules and one for specific modules that build `module_name` internally while reusing the same shared prefix.
-- A good mixed helper shape is `trackModule(moduleName: string)` and `trackSpecific(baseModuleName: string, idType: string, idValue: string | number)`.
-- `trackSpecific(...)` should build `module_name` like `<baseModuleName>:<idType>:<idValue>` and must not modify `prefix`.
-- Always include a stat-reading helper (e.g. `getModuleStats(moduleName)`) that wraps `searchKeys(...)` and `statRedis.get(...)`.
-- If backend/API support exists and the user approves it, add a read API that accepts a wildcard search input, fetches matching Redis keys through `searchKeys(...)`, and returns keys with values through `statRedis.get(...)`.
-- Inside every tracking function, explicitly set all period flags (`per_sec`, `per_min`, ..., `global_year`) to `true` or `false` based on the periods confirmed in Step-6. Never omit a flag.
+- A helper file is needed only when stat-reading logic is added.
+- Create it aligned to the project's folder conventions (e.g. `src/helpers/stats.ts`, `src/utils/stats.ts`).
+- It must keep one shared `prefix` value, the same one passed to `statis.init(...)`.
+- Export a stat-reading helper (e.g. `getStats(pattern)`) that wraps `searchKeys(...)` and `statRedis.get(...)`.
+- If backend/API support exists and the user approves it, add a read API that accepts a wildcard search input, fetches matching Redis keys through `searchKeys(...)`, and returns keys with values through `statRedis.get(...)`. Add that API's path to `ignore.paths`.
 
 ## Implementation rules
 
 - Read the codebase before recommending exact changes when code access exists.
 - If code access does not exist, ask for the relevant code or reference files.
 - Keep changes minimal and aligned to the project structure.
-- Initialize Redis once, never per request.
-- If the project already has an `ioredis` client, prefer `statis.redis.object(...)`.
-- If Redis is set up fresh, read all connection config from env variables and ensure `.env` is created or updated with defaults.
-- Ensure `dotenv` is loaded before Redis initialization if the project does not already handle env loading automatically.
-- Add `trackAction(...)` calls only through the helper file, never directly in business logic.
+- Call `statis.init(...)` once, at the top of the entry file, before the server listens.
+- If the project already has an `ioredis` client, prefer `statis.init({ redis: { client, type }, prefix })`.
+- If Redis is set up fresh, pass the connection to `statis.init(...)` directly (a URL string is simplest). Keep a password out of source, with the project's other config, and make sure that config is loaded before `statis.init(...)` runs.
+- Do not add tracking calls to routes, controllers, services, workers or jobs; redis-tracker has no manual tracking API.
 - If analytics/read endpoints are requested, use `searchKeys(...)` and `statRedis.get(...)` through the helper.
 - If backend/API support exists, explicitly ask whether a Redis search/list API should be created before implementing it.
-- Use stable `module_name` values such as `profile-view-api`, `swap-tx-rpc`, `login-route`, `withdraw-job`, etc.
-- If mixed/specific tracking is needed, keep `prefix` unchanged and use structured `module_name` values such as `current-user-api:userId:123` or `wallet-balance-api:walletAddress:0xabc`.
-- When listing tracked items, always suggest whether each one should use common tracking or specific tracking.
-- When generating the final `trackAction(...)` call in the helper, always explicitly set every period flag (`per_sec`, `per_min`, `per_hour`, `per_day`, `per_month`, `per_year`, `global_sec`, `global_min`, `global_hour`, `global_day`, `global_month`, `global_year`) to either `true` or `false` based on the periods the user confirmed. Never leave any flag omitted; omitting a flag defaults it to `true` and may store unnecessary data in Redis.
-- Never propose or generate dynamic prefixes such as `qa-server:${userId}` or `server-name:<unique-parameter>`.
+- Never propose or generate dynamic prefixes such as `qa-server:${userId}`.
+- In tests, pass `enabled: false` to `statis.init(...)`.
+- Only turn on `dashboard` if the user asks for it. Outside local development, always set `dashboard.username` and `dashboard.password`, keep the password with the project's other secrets, and never hardcode it.
 
 ## How to respond
 
@@ -372,7 +258,7 @@ trackAction({
 - Only after confirmation should you write or modify code.
 - Do not skip the questioning step.
 - Do not assume standalone vs cluster.
-- Do not assume common vs specific tracking.
+- Do not assume which paths to ignore or which optional types to turn on.
 - Do not proceed without confirmation.
 - Ask each step using one short direct question, and tell the user the expected reply format whenever useful.
 - If backend/API support exists, include the Redis search/list API question as its own step before final confirmation.
@@ -390,28 +276,25 @@ trackAction({
 ```text
 ✅ redis-tracker is implemented successfully.
 
-Tracked modules:
-- <module_name_1> -> <tracking type: common / specific using <param> in module_name>
-- <module_name_2> -> <tracking type: common / specific using <param> in module_name>
-- ...
+Tracking:
+- statis.init in: <path/to/entry-file>
+- prefix: <prefix>
+- types tracked: <API, WEB, ... / changes from defaults>
+- custom types / operations: <list or none>
+- ignored paths: <list or none>
+- failures key: <on/off>
 
-Active time periods:
-- per_sec: <true/false>
-- per_min: <true/false>
-- per_hour: <true/false>
-- per_day: <true/false>
-- per_month: <true/false>
-- per_year: <true/false>
-- global_sec: <true/false>
-- global_min: <true/false>
-- global_hour: <true/false>
-- global_day: <true/false>
-- global_month: <true/false>
-- global_year: <true/false>
+Active time periods (timeConfig):
+- sec: <on/off, expiry>
+- min: <on/off, expiry>
+- hour: <on/off, expiry>
+- day: <on/off, expiry>
+- month: <on/off, expiry>
+- year: <on/off, expiry>
 
-Helper file created at: <path/to/tracker.ts>
-Redis initialized in: <path/to/startup-file>
-.env updated/created at: <path/to/.env> (if applicable)
-dotenv installed/configured: <yes / not needed - already handled by <framework/loader>>
+Not counted (never arrives as a request): <list of workers/jobs or none>
+
+Helper file created at: <path/to/stats.ts> (if applicable)
+Redis connection: <reused client / URL from <where>>
 Stats endpoint available at: <route> (if added)
 ```
