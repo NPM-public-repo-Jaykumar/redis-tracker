@@ -1,4 +1,5 @@
 import type { AutoConfig, TimeBucket } from "../types";
+import { type Sample } from "../auto/samples";
 export declare const TIME_BUCKETS: TimeBucket[];
 export declare const RANGE: Record<TimeBucket, number>;
 export declare class BadRequest extends Error {
@@ -102,6 +103,8 @@ export declare function typeView(typeParam: string | null, range: string | null,
     routes: RangeRoute[];
 }>;
 export declare function routeView(q: URLSearchParams, now?: number): Promise<{
+    samples: Sample[];
+    failed: Sample[];
     key: string;
     buckets: TimeBucket[];
     failures: boolean;

@@ -2,6 +2,7 @@ export declare function sanitize(name: string): string;
 export declare function stripQuery(url: string): string;
 export declare function matchPath(pattern: string, path: string): boolean;
 export declare function normalizeSegment(seg: string): string;
+export declare function templatePath(rawPath: string): string;
 export declare function expressRoute(req: any): string | undefined;
 export declare class RouteNamer {
     private collapseAfter;

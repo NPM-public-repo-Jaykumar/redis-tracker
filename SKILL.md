@@ -87,7 +87,8 @@ statis.init({
 | `STATIC` (off) | HTTP method | `qa-server:STATIC:GET:assets/<file>:min:…` |
 | `OUT` (off) | HTTP method | `qa-server:OUT:GET:rpc-testnet.supra.com/rpc/v1/block:min:…` |
 
-- GraphQL and JSON-RPC are recognised from `req.body`, so the app must parse JSON bodies (for example `express.json()`). Otherwise those calls count as `API`. This works with Express and NestJS; on Fastify, Koa and Next.js they count as `API`.
+- GraphQL and JSON-RPC are recognised from the JSON body on every framework: `req.body` when a body parser set it, otherwise the body as the app read it (up to 64 KB). GraphQL also via `GET ?query=`, `application/graphql` bodies and batches. See [Make every kind of traffic count](#make-every-kind-of-traffic-count) for what still isn't recognised.
+- With the dashboard on, each route's page shows its recent requests as curl (structure and exact sample) and its recent failures with the error response and, in Express, the stack. No code is needed for this.
 - Where to call `statis.init(...)`:
 - Express, Fastify, Koa, plain Node: top of `server.ts` / `index.js`
 - NestJS: `main.ts`, before `NestFactory.create()`
@@ -162,11 +163,48 @@ If you have no code access, ask for the root `package.json`, the startup/entry f
   - gRPC (`@grpc/grpc-js`)
   - calls the app makes to other services (`fetch`, `axios`, `http.request`, RPC providers, payment or email APIs)
   - static files served by the app
-- Whether JSON bodies are parsed (`express.json()`), which GraphQL/JSON-RPC detection needs. On Fastify, Koa and Next.js they count as `API`; say so.
+- Every route the app defines (router files, controllers, `app/api/**/route.ts`, `pages/api/**`, GraphQL resolvers, RPC method tables, socket event handlers), so you can predict the key each one gets. See [Make every kind of traffic count](#make-every-kind-of-traffic-count).
 - Noisy paths: health checks, metrics, readiness probes, admin tools.
 - Route groups that deserve their own `types` (webhooks, admin) and single-URL endpoints whose operation name is in a custom body field (`operations`).
 - A Content Security Policy, and whether it uses a nonce (Next.js middleware setting `x-nonce`, `helmet` with nonces).
 - Work that never arrives as a request (cron, queue workers, scripts). It won't be counted; say so.
+
+## Make every kind of traffic count
+
+Don't assume a kind of traffic is counted because the library is installed. For each one found, check the condition below against the code; when it doesn't hold, apply the fix in the same change, then verify it.
+
+| Traffic | Counted when | If not, the fix |
+| --- | --- | --- |
+| GraphQL | the operation arrives as JSON `{ "query": "…" }` (POST, read by the app), `GET ?query=`, or `application/graphql` | Persisted queries that send only a hash (`extensions.persistedQuery`, no `query`): `operations: [{ path: "/graphql", type: "GRAPHQL", read: (b) => b.operationName }]`. Unnamed operations count as `<anonymous>`: name them in the client, or read a name the same way. |
+| GraphQL subscriptions | over WebSockets (`graphql-ws`, `subscriptions-transport-ws`) they're counted as `WSS` connections and messages on the socket's path, not per operation | Say so; nothing to change. |
+| JSON-RPC | the body has `"jsonrpc": "2.0"` and a `method` | RPC-style bodies without `jsonrpc` (`{ "action": "swap" }`, `{ "op": … }`): `operations: [{ path: "/action", type: "RPC", read: (b) => b.action }]`. |
+| WebSockets | the socket server runs on a Node `http`/`https` server in the same process (`ws`, `socket.io`, `new WebSocketServer({ port })` all do) | Messages and Socket.IO events are counted only when `ws` / `socket.io` resolve from the folder the app starts in (its `node_modules`). In a monorepo started from the root, check this. `uWebSockets.js`, `Bun.serve` and `Deno.serve` aren't Node servers and can't be counted; say so. |
+| Server-sent events | the response sets `Content-Type: text/event-stream` | Set that header on the stream (SSE needs it anyway). |
+| gRPC | `@grpc/grpc-js` serves in the same process | A proxy or separate binary isn't counted; say so. |
+| Outgoing calls | made with `http`, `https`, `fetch`, `undici` or a client built on them (axios, got, node-fetch), and `track: { OUT: true }` | Turn `OUT` on if the user chose it. |
+| Pages changed in the browser | the page-view script is in the shared layout | Add it (Step-6). |
+
+Then make sure nothing important ends up under a catch-all name. Go through the routes you listed and predict each key; fix every one that would land in:
+
+- `OTHER:…:<unmatched>`: on frameworks other than Express, any 404 is `OTHER`, including a real route answering "not found" (`GET /api/users/999`). Keep those under their route with a `types` entry that reuses the built-in type, for example `types: [{ path: "/api/*", type: "API" }]`.
+- `<unknown>`: an `operations` `read` that returns nothing for some requests. Read the field those requests do send, or fall back to another one.
+- `<anonymous>`: GraphQL operations without a name (see the table).
+- `<other>`: more names in a type than `limits.maxNamesPerType` (200). If the app really has more routes, raise it to fit, with room to grow.
+- `<slug>`: a URL part with more than `limits.collapseAfter` (50) values. Fine for slugs and usernames; if a real fixed route family collapses, raise it.
+- A route family that deserves its own name (webhooks, admin, a proxy under one path): give it a `types` entry.
+
+With the dashboard on, requests under `<unmatched>`, `<other>`, `<unknown>` and `<anonymous>` keep their last 20 curls on the route's page. Mention it, so the user can find what's still unnamed later.
+
+### Verify
+
+When you can run the app and Redis is reachable, prove each fix with a real request, then look for the key:
+
+```bash
+curl -s -X POST localhost:3000/graphql -H 'content-type: application/json' -d '{"query":"query GetUser { user { id } }"}'
+redis-cli --scan --pattern '<prefix>:GRAPHQL:*'      # expect <prefix>:GRAPHQL:QUERY:GetUser:…
+```
+
+Do the same for JSON-RPC (`<prefix>:RPC:*`), a WebSocket connection and message (`<prefix>:WSS:*`), and a 404 from a real route. Report what you checked and what you couldn't.
 
 ## First response format
 
@@ -257,6 +295,7 @@ Ask only the steps that apply, in this order. In a workspace with several projec
   - `Turn it on without a login`: local development only; anyone who can reach the URL sees the traffic and can change boards. Say this plainly.
   - `No dashboard`.
   - Tell the user the URL it'll be at (for example `http://localhost:3000/redis-tracker/dashboard`) and that reset data needs the login.
+  - Say what they get: charts per route, insights, boards, and on each route's page its recent requests as curl (structure and exact sample, copyable into Postman) and its recent failures with the error response and stack. Those requests are kept as sent, tokens included, which is one more reason for the login.
 - `Step-12` Final confirmation
   - Show, per project, the full `statis.init({...})` call, the page-view script tag and the file for each, the env variables to add (names and which files; never the password value).
   - Ask: `Should I make these changes now?` `Implement (Recommended)` / `Change something` / `Stop`.
@@ -294,7 +333,8 @@ statis.init({
 
 ## Implementation rules
 
-- Keep changes minimal and aligned to the project structure.
+- Keep it simple. Change as few files as possible: usually the entry file (`statis.init`), the shared layout (the page-view script) and the env files. Don't create helper files, wrapper modules, config classes or abstractions for redis-tracker; put the `init` call inline where it belongs, and match the surrounding code's style.
+- Don't add packages besides `redis-tracker`, and don't touch routes, controllers or business code.
 - Call `statis.init(...)` once per server process, at the place listed in "Where to call `statis.init(...)`", before the server listens.
 - Write only options that differ from the defaults, so `init` stays short and readable.
 - If the project already has an `ioredis` client, prefer `statis.init({ redis: { client, type }, prefix })`.

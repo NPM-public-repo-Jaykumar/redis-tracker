@@ -103,7 +103,7 @@ import { statis } from "redis-tracker";
 statis.init({ redis: { host: "127.0.0.1", port: 6379 }, prefix: "demo" });
 
 const app = express();
-app.use(express.json()); // lets GraphQL and JSON-RPC calls be recognized
+app.use(express.json());
 
 app.get("/api/users/:id", (req, res) => {
   res.json({ id: req.params.id }); // counted as demo:API:GET:api/users/<id>
@@ -294,13 +294,13 @@ Use the API server's full URL when the pages come from somewhere else. `data-cou
 
 #### What works where
 
-| Framework | Requests counted | Route names | GraphQL / JSON-RPC from body |
+| Framework | Requests counted | Route names | GraphQL / JSON-RPC |
 | --- | --- | --- | --- |
-| Express 4 / 5 | yes | Your Express routes | yes, with `express.json()` |
+| Express 4 / 5 | yes | Your Express routes | yes |
 | NestJS (Express) | yes | Your controller routes | yes |
-| Plain Node `http` / `https` | yes | Cleaned-up URL | only if you set `req.body` |
-| Fastify, Koa | yes | Cleaned-up URL | no — counted as `API` |
-| Next.js, Nuxt, SvelteKit, Astro (Node) | yes | Cleaned-up URL | no — counted as `API` |
+| Plain Node `http` / `https` | yes | Cleaned-up URL | yes |
+| Fastify, Koa | yes | Cleaned-up URL | yes |
+| Next.js, Nuxt, SvelteKit, Astro (Node) | yes | Cleaned-up URL | yes |
 
 - Requests only reach the tracker if your Node process serves them. A site served by a CDN, Nginx or an edge runtime isn't counted.
 - `init` runs when that file is first loaded. Requests that arrive before then aren't counted.
@@ -375,7 +375,7 @@ Four tabs, and each part loads only when you open it:
 
 - **Overview**: your default board, when you set one (see [Boards](#boards)). Otherwise the built-in overview, with a range picker at the top: the last minute (per second), hour (per minute), 24 hours, 7 days, 30 days, 12 months or 5 years. Everything on the page covers that range: the requests in it, the current second, minute, hour, day, month or year next to the one before, the average and the busiest one; traffic stacked by type (hover a bar for each type and the total); one row per type with its trend, its current bucket (for example today), its total for the range (for example the last 7 days) and its share of that total; and the top routes, the same way. Outgoing calls (`OUT`) are listed too, but they aren't requests to your app, so they're not part of the total, the stacked chart or the shares, just like `{prefix}:global` leaves them out. The most important insights sit above them. The totals come from the `{prefix}:global` and `{prefix}:{TYPE}:global` keys, read by exact name; the routes of the last minute or hour are read by name for the routes seen in the last two hours, and longer ranges with one `SCAN`, cached for 15 seconds. **Customize** turns it into a board you can rearrange; saving it makes it your Overview.
   - **Type** (click a row or a bar): the same range picker, and for that range its numbers, 5xx rate, share by route, methods, and every route with its requests, its current bucket and, with `failures: true`, its 5xx. Filter and sort them.
-  - **Route** (click a route): one tile per bucket (seconds to years), which also picks the range, with how long each bucket is kept; the total, average, peak and lowest of the range, its failure rate, a chart with 5xx in red, and the raw bucket values.
+  - **Route** (click a route): one tile per bucket (seconds to years), which also picks the range, with how long each bucket is kept; the total, average, peak and lowest of the range, its failure rate, a chart with 5xx in red, and the raw bucket values. Below them, the route's [recent requests and failures](#recent-requests-and-failures) as curl commands.
 - **Insights**: stats and problems for the last 15 minutes, the last hour, today, this week, this month, this quarter or this year, with reports you can export. Problems are grouped as critical, warning, spikes, drops, high traffic, scale, failures and new routes. Click one to open that route or type at the right time range. See [Insights](#insights).
 - **Boards**: your own dashboards. See [Boards](#boards).
 - **Settings**: try other settings and get the `init()` code for them. See [Settings](#settings-tab).
@@ -401,6 +401,47 @@ Hover any chart, including the small trend lines, to see the time and the value 
 | High traffic | one route has 40% or more of all calls today (with at least 10,000 calls and 3 routes); or today is on track for 1.5× yesterday | info |
 | Scale | a type uses 80% of `limits.maxNamesPerType`; calls were counted as `<other>`; or 10% of a type's calls matched no route | warning or info |
 | New | a route has calls today and none yesterday | info |
+
+#### Recent requests and failures
+
+Each route's page lists its recent requests, so you can see what's being sent and replay it. Pick the format at the top:
+
+- **curl structure**: the route with its parameters, and every value replaced by its type. Use it to see the shape of a request.
+- **curl sample**: the request exactly as it was sent, ready to run.
+
+curl structure:
+
+```bash
+curl -X POST 'https://api.example.com/api/users/:userId/profile?lang=<string>' \
+  -H 'content-type: application/json' \
+  -H 'authorization: <authorization>' \
+  --data-raw '{
+  "username": "<string>",
+  "age": "<number>"
+}'
+```
+
+curl sample:
+
+```bash
+curl -X POST 'https://api.example.com/api/users/42/profile?lang=en' \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer eyJhbGciOi…' \
+  --data-raw '{"username":"jay","age":10}'
+```
+
+**Copy** puts the command on your clipboard. Paste it in a terminal, or in Postman with **Import → Raw text**. In a GraphQL body, the query and operation name stay as they are and only the variables become types; in a JSON-RPC body, so does the method.
+
+- **Recent requests**: the last 5 per route, at most one a minute, newest first. Names that many different requests share (`<unmatched>`, `<other>`, `<unknown>`, `<anonymous>`) keep the last 20, at most one every 2 seconds, so you can see what's behind them.
+- **Recent failures**: the last 20 requests answered with status 500 or above, at most one a second per route. Each also has the start of the error response (up to 2 KB) and, in Express apps, the stack of the error passed to `next(err)` or thrown in a route.
+- **No duplicates**: a request with the same method, URL (path and query) and body as one already in the list isn't added again. That entry moves to the top with the latest time, response and stack, and shows how many times it was captured (×3). So the list holds different requests, and repeats don't push them out.
+
+What's kept:
+
+- The method, URL, headers and body (up to 16 KB) as they were sent, including `Authorization`, cookies and API keys. Only connection headers (`Host`, `Content-Length`, `Connection`, `Accept-Encoding`, …) are left out; the host is part of the URL. Because of this, set a dashboard login, and keep your Redis private.
+- HTTP requests only. WebSocket traffic, gRPC and outgoing calls have no curl.
+- Saved in your Redis as lists at `redis-tracker:samples:{prefix}:{TYPE}:{ACTION}:{name}` and `redis-tracker:failures:{prefix}:{TYPE}:{ACTION}:{name}`, kept 30 days after their last write. Resetting a route, a type or everything for all time deletes them too.
+- Only while the dashboard is on. Without `dashboard.enable`, nothing is kept.
 
 #### Settings tab
 
@@ -459,7 +500,7 @@ How it behaves:
 - It's dark by default; the theme button switches to light. The browser remembers both choices.
 - It works on any screen size: on tablets and phones the layout stacks, tables scroll sideways and charts keep their proportions.
 - With a username and password, signing in sets an `HttpOnly`, `SameSite=Strict` cookie for 7 days. Changing the password signs everyone out.
-- Without them, anyone who can reach the URL can see your routes and traffic, and change your boards. The page shows a warning, and the server logs one at startup. In production, set a login and serve it over HTTPS.
+- Without them, anyone who can reach the URL can see your routes and traffic, the recent requests with their headers and bodies, and change your boards. The page shows a warning, and the server logs one at startup. In production, set a login and serve it over HTTPS.
 - Times are in IST, like the bucket ids in the keys.
 
 ### Read the counts
@@ -781,10 +822,9 @@ POST /action {"action":"stake"}   →  demo:ACT:CALL:stake:min:…
 POST /action {}                   →  demo:ACT:CALL:<unknown>:min:…
 ```
 
-- `read` gets the parsed `req.body` and must return a non-empty string.
+- `read` gets the parsed JSON body and must return a non-empty string.
 - Anything else, including an error thrown inside `read`, counts as `<unknown>`.
 - The action is always `CALL`, and `type` is upper-cased.
-- The body has to be parsed first, for example with `express.json()`.
 
 ### Name requests yourself
 
@@ -949,7 +989,7 @@ How each type is detected, checked in this order (the first match wins):
 2. **Custom types**: the path matches one of your `types`. See [Custom types](#custom-types).
 3. **Operations**: the path matches one of your `operations`. See [One URL, many operations](#one-url-many-operations).
 4. **`RPC`**: the parsed request body has `"jsonrpc": "2.0"` and a `method`. A call with an `id` is `CALL` and one without is `NOTIFY`. In a batch (`[{...}, {...}]`), each call is counted under its method and in `demo:RPC:global`, while `demo:global` counts the HTTP request once. Repeated methods in a batch are merged into one Redis write per key.
-5. **`GRAPHQL`**: the parsed request body has a `query` that is a GraphQL document (it starts with `{` or with `query`, `mutation` or `subscription` and contains `{`). The name is `operationName`, else the name in the document, else `<anonymous>`. A REST body like `{"query": "shoes"}` stays `API`.
+5. **`GRAPHQL`**: the parsed request body has a `query` that is a GraphQL document (it starts with `{` or with `query`, `mutation` or `subscription` and contains `{`). The name is `operationName`, else the name in the document, else `<anonymous>`. A REST body like `{"query": "shoes"}` stays `API`. Also recognised: a `GET` with the document in `?query=` (and `?operationName=`), an `application/graphql` body, and a batch (`[{...}, {...}]`), where each operation is counted.
 6. **`OTHER`**: the response status is 404 and no route matched. All of these share the single name `<unmatched>`, so bot scans can't create new keys.
 7. **`SSE`**: the response `Content-Type` is `text/event-stream`.
 8. **`STATIC`**: the file extension is `js`, `mjs`, `css`, `map`, `png`, `jpg`, `jpeg`, `gif`, `svg`, `ico`, `webp`, `avif`, `woff`, `woff2`, `ttf`, `otf`, `eot`, `mp4` or `webm`, or the path starts with `/_next/static/`. The file name becomes `<file>`.
@@ -974,7 +1014,7 @@ Always skipped:
 - Socket.IO long-polling requests (`/socket.io/...`)
 - Next.js's own WebSocket in development (`/_next/webpack-hmr`, used for hot reload)
 
-`RPC` and `GRAPHQL` are read from `req.body`, so your app must parse JSON bodies, for example with `express.json()`. When nothing has parsed the body, those calls count as `API`, such as `demo:API:POST:rpc`.
+`RPC` and `GRAPHQL` are read from the JSON body: `req.body` when your app's body parser set it, otherwise the body as your app read it (Fastify, Koa, Next.js and plain Node keep theirs elsewhere). redis-tracker never reads the body itself; it sees it while your app does, up to 64 KB. A body your app never reads, or a larger one without `req.body`, counts as `API`.
 
 ### How routes are named
 
@@ -989,6 +1029,8 @@ With Express (and NestJS, which uses Express), the route you wrote is used:
 | `app.get("/items/:id?")` (Express 4) or `app.get("/items{/:id}")` (Express 5) | `items/<id>` |
 | `app.get("/files/*")` | `files/<rest>` |
 | `app.get("/files/*splat")` (Express 5) | `files/<splat>` |
+
+A route that's only a wildcard, such as `app.all("*")` or `app.all("/{*splat}")` in a Next.js custom server or Remix and React Router on Express, says nothing about the page, so those requests are named from their URL, as below.
 
 Everywhere else (plain Node, Fastify, Koa, Next.js), the URL is cleaned up:
 
@@ -1032,6 +1074,7 @@ Names never contain `:` (it is replaced with `/`) and are cut at 200 characters,
 ### How it behaves
 
 - **It never breaks your app.** Tracking errors are logged as `[redis-tracker] … failed` and never thrown into your request handling. Response bodies and status codes are untouched.
+- **Request bodies.** JSON bodies are watched as your app reads them, up to 64 KB, for GraphQL and JSON-RPC. With the dashboard on, other text bodies are too, for [recent requests](#recent-requests-and-failures). Nothing is read ahead of your app, and file uploads and binary bodies are skipped.
 - **Quiet when Redis fails.** If Redis keeps returning errors (out of memory, read-only after a failover), the same error is logged at most once every 10 seconds, with a `suppressed` count of the ones skipped.
 - **Redis cost.** Each key is one `EVALSHA` per enabled bucket (the script is sent once, then called by its hash). Repeated hits in one request are merged with `INCRBY`.
 - **Redis down or still connecting.** Automatic counts are skipped until Redis is ready, so nothing piles up in memory. Requests that arrive in the first moments after startup, before the connection is up, are not counted.
