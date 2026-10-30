@@ -67,11 +67,19 @@ In React, Angular, Vue and Next.js apps, moving to another page happens in the b
 ```
 
 - **Next.js** (App Router): add it in `app/layout.tsx` with `<Script src="/redis-tracker/view.js" strategy="afterInteractive" />` from `next/script`. Pages Router: the same in `pages/_app.tsx`.
-- **React, Vue** (Vite, Create React App): add the tag to `index.html`.
+- **React, Vue, Svelte** (Vite, Create React App): add the tag to `index.html`.
 - **Angular**: add the tag to `src/index.html`.
+- **Nuxt**: add it to `app.head.script` in `nuxt.config.ts`: `{ src: "/redis-tracker/view.js", defer: true }`.
+- **SvelteKit**: add the tag to `src/app.html`.
+- **Remix, React Router**: add the tag in `app/root.tsx`, inside `<head>`.
+- **Any other framework**: put it in the HTML that every page shares (the root layout or template), so it loads once.
 - **Pages served from somewhere else** (a CDN, or a dev server on another port): use your API server's full URL, for example `<script src="https://api.example.com/redis-tracker/view.js" defer></script>`. Add `data-count-first` to the tag to also count the first page, since that server never sees it.
 
-Each time the path changes (`history.pushState`, `replaceState`, the back and forward buttons, or a `#/...` hash route), the script sends the new path to `POST /redis-tracker/view` with `navigator.sendBeacon`. It's counted as a `WEB` page view under the same name as a full page load, so `/products/12` and `/products/7` both count as `products/<id>`. Only the path counts: a new query string or `#section` on the same page doesn't. `track.WEB`, `ignore.paths` and `ignore.bots` apply as usual. The first page load is counted by your server, as before, so it isn't counted twice.
+Each time the path changes (`history.pushState`, `replaceState`, the back and forward buttons, or a `#/...` hash route), the script sends the new path to `POST /redis-tracker/view` with `navigator.sendBeacon`. It's counted as a `WEB` page view under the same name as a full page load, so `/products/12` and `/products/7` both count as `products/<id>`. Only the path counts: a new query string or `#section` on the same page doesn't. `track.WEB`, `ignore.paths` and `ignore.bots` apply as usual. The first page load is counted by your server, as before, so it isn't counted twice. Requests for the script and its reports never reach your routes and aren't counted as requests of their own.
+
+Sites where every link loads a new page from your server (Express with EJS or Pug, for example) don't need the script: each page is already counted.
+
+With `enabled: false`, the script isn't served. The tag then gets a 404, which doesn't affect your pages.
 
 Next.js fetches a page's data when the browser moves to it (requests with an `RSC: 1` header in the App Router, and `/_next/data/...` in the Pages Router). Those aren't counted as `API` calls; the script counts the page change instead.
 
@@ -398,6 +406,8 @@ export async function register() {
 
 Fastify, Koa, plain Node: put the same call at the top of `server.ts` / `index.js`.
 
+Other frameworks that run on a Node server (Nuxt, SvelteKit with `adapter-node`, Astro with `@astrojs/node`): call it in code that runs once when the server starts, in the same process, for example a Nuxt server plugin (`server/plugins/redis-tracker.ts`) or SvelteKit's `src/hooks.server.ts`. Requests are counted from that moment, and their routes get cleaned-up URL names.
+
 What works where:
 
 | Framework | Requests counted | Route names | GraphQL / JSON-RPC from body |
@@ -409,7 +419,7 @@ What works where:
 | Next.js (Node runtime) | yes | Cleaned-up URL | no — counted as `API` |
 
 - Requests only reach the tracker if your Node process serves them. A site served by a CDN, Nginx or an edge runtime isn't counted.
-- Page changes inside a single-page app (React, Vue, Angular routing) happen in the browser and aren't counted. Their API calls are.
+- Page changes inside a single-page app (React, Vue, Angular, Next.js routing) happen in the browser, so the server doesn't see them. Their API calls are counted; add [the page-view script](#page-views-in-single-page-apps) to count the page changes too.
 
 In tests, turn tracking off:
 
