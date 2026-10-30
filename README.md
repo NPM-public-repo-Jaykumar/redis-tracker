@@ -4,12 +4,24 @@ Count every request your Node.js app handles in Redis, per second, minute, hour,
 
 You call it once at startup. Your routes need no tracking code.
 
+## AI Prompt
+
+Using an AI coding assistant (Claude Code, Cursor, Copilot)? Paste this into it. It looks through your project (or each project, when the folder holds several), asks in plain words what you want to track (website pages, API calls, WebSockets, calls to outside services and more) with a recommended answer for each, then sets up redis-tracker, server and browser parts included:
+
+```
+Read and strictly follow the SKILL.md file to implement the npm package "redis-tracker".
+
+References:
+NPM: https://www.npmjs.com/package/redis-tracker
+SKILL.md: https://github.com/NPM-public-repo-Jaykumar/redis-tracker/blob/main/SKILL.md
+```
+
 ## Contents
 
 - **[Getting started](#getting-started):** [Install](#install) · [Quick start](#quick-start) · [Set up your framework](#set-up-your-framework) · [Page views in single-page apps](#page-views-in-single-page-apps) · [Dashboard](#dashboard) · [Read the counts](#read-the-counts) · [Connect to Redis](#connect-to-redis)
 - **[Settings](#settings):** [Expiry](#expiry) · [Skip requests](#skip-requests) · [Choose what to track](#choose-what-to-track) · [Custom types](#custom-types) · [One URL, many operations](#one-url-many-operations) · [Name requests yourself](#name-requests-yourself) · [Limits](#limits) · [All options](#all-options)
 - **[How it works](#how-it-works):** [Redis keys](#redis-keys) · [What gets counted](#what-gets-counted) · [How routes are named](#how-routes-are-named) · [How it behaves](#how-it-behaves)
-- **[More](#more):** [Examples](#examples) · [TypeScript](#typescript) · [Demo](#demo) · [AI Prompt](#ai-prompt) · [Development](#development)
+- **[More](#more):** [Examples](#examples) · [TypeScript](#typescript) · [Demo](#demo)
 
 ## Getting started
 
@@ -1062,13 +1074,3 @@ import type {
 
 - TS StackBlitz: <a href="https://stackblitz.com/edit/stackblitz-starters-vfzwhow5?file=server.ts" target="_blank" rel="noopener noreferrer">Open TS demo</a>
 - JS StackBlitz: <a href="https://stackblitz.com/edit/stackblitz-starters-akuiwtmr?file=server.js" target="_blank" rel="noopener noreferrer">Open JS demo</a>
-
-### AI Prompt
-
-```
-Read and strictly follow the SKILL.md file to implement the npm package "redis-tracker".
-
-References:
-NPM: https://www.npmjs.com/package/redis-tracker
-SKILL.md: https://github.com/NPM-public-repo-Jaykumar/redis-tracker/blob/main/SKILL.md
-```

@@ -1,6 +1,6 @@
 ---
 name: redis-tracker
-description: Use this skill when integrating the `redis-tracker` npm package into an existing codebase, especially to inspect Redis setup, choose the correct startup integration point, turn on automatic request tracking with `statis.init(...)`, choose its options, and expose read/stat helpers or endpoints.
+description: Use this skill when integrating the `redis-tracker` npm package into a codebase, a single project or a workspace with several. It inspects the projects, asks the user step by step in plain words what to track (website pages, API, GraphQL, JSON-RPC, WebSockets, outside calls and more) with a recommended answer for each, then sets up `statis.init(...)`, the page-view script and the dashboard.
 ---
 
 # redis-tracker
@@ -98,11 +98,12 @@ statis.init({
 - Astro (`@astrojs/node`): top of `src/middleware.ts`
 - React, Vue, Angular, Svelte SPAs (Vite, CRA, Angular CLI): in the API server they call, not in the app; the page-view script then uses the API server's full URL with `data-count-first` when the pages are served from elsewhere
 - For every framework whose pages change without a reload, also add the page-view script (see the single-page apps bullet above) in the same change, so the setup is complete.
-- `prefix` must stay a single stable app/environment value such as `qa-server`, `prod-server`, or `payments-api`. Never put dynamic values such as `userId`, `walletAddress`, `tenantId` or `sessionId` inside it.
+- `prefix` is the environment the app runs in, read from the environment variable the project already uses: `prefix: process.env.APP_ENV ?? "development"` gives keys like `production:API:GET:…`, `staging:API:GET:…`, so local, staging and production counts never mix in a shared Redis (see [Config values](#config-values)). Never put per-request values such as `userId`, `walletAddress`, `tenantId` or `sessionId` inside it, and never `:`.
 - Use the same `prefix` in every service that should share one `global` total.
 
 ### Reading counts
 
+- The dashboard shows the counts, so don't add a stats endpoint or helper unless the user asks for one. If they do, use these:
 - `searchKeys(pattern)` returns matching keys across standalone or cluster nodes.
 - `statRedis` proxies the active Redis client for commands like `get`, `ttl`, `del`.
 
@@ -115,194 +116,216 @@ const counts = await Promise.all(
 
 ## Workflow
 
-1. Do not immediately edit code.
-2. First understand the codebase and ask implementation questions.
-3. If you already have code access, inspect the codebase first and tell me what you found.
-4. If you find an existing Redis setup, say:
-- `I found an existing Redis setup in <file/path>.`
-- `This looks like the best integration point for redis-tracker. Can we proceed with this approach?`
-5. If you do not have code access, ask me for the relevant startup/init files, Redis config, or Redis service files before recommending changes.
-6. Only after my confirmation should you update code or provide final implementation code.
+1. Inspect the codebase first. Do not edit code yet.
+2. Report what you found (see [First response format](#first-response-format)).
+3. Ask the steps below one at a time, in plain words, each with a recommended answer.
+4. Only after the final confirmation, change the code.
 
-## What to analyze and report before recommending implementation
+If you have no code access, ask for the root `package.json`, the startup/entry files, the Redis setup and the route files, then continue the same way.
 
-- Find whether Redis already exists in the codebase.
-- Find where Redis is initialized and where the best startup integration point is.
-- Find whether the current Redis usage is standalone or cluster.
-- Find whether the codebase already uses `ioredis`, a Redis wrapper, a DI container, or a shared service module.
-- Find the framework and entry file (Express, Fastify, Koa, NestJS `main.ts`, Next.js `instrumentation.ts`, plain Node).
-- Find which kinds of traffic the app serves: REST/JSON APIs, HTML pages, GraphQL, JSON-RPC, WebSockets or Socket.IO, SSE, gRPC, static files, and outgoing calls to other services.
-- Find whether JSON bodies are parsed (e.g. `express.json()`), which GraphQL/JSON-RPC detection needs.
-- Find health checks, metrics and other noisy paths that should go in `ignore.paths`.
-- Find route groups that deserve their own `types` (webhooks, admin) and single-URL endpoints whose operation name sits in a custom body field (`operations`).
-- Find work that never arrives as a request (workers, jobs, cron). Report it as not counted by redis-tracker.
-- Find whether the project already has analytics/statistics endpoints where `searchKeys(...)` and `statRedis.get(...)` can fit naturally.
-- Find whether the project is UI-only or whether a backend/API layer exists where a Redis search/stats API can be added.
-- Find where the project keeps its config (env files, a config module, a secrets manager), so a new Redis URL can live with it.
-- Tell me all important findings before suggesting code changes.
+## How to ask
 
-## Best implementation guidance
+- Ask in plain words first, the technical name second: "People opening pages of your website (`WEB`)", not "`track.WEB`?".
+- If your tool has an interactive question picker (for example `AskUserQuestion` in Claude Code), use it: one question per step, short option labels, and a one-line description per option. Use multi-select for "what to track" questions. Otherwise, write the options as a numbered list and say how to reply (`1,3,4`, `yes`/`no`, or the option name).
+- Mark the option you recommend with `(Recommended)` and put it first. Base it on what you found in the code, and say why in a few words (for example "found `ws` server in `src/socket.ts`").
+- Ask only one step at a time and wait for the answer. If the answer is partial, confirm what's decided and ask only the missing part.
+- Skip steps that don't apply (no frontend → no page-view step; no Redis question when the project's client is reused and its mode is clear). Say in one line that you skipped it and why.
+- Never assume standalone vs cluster, which paths to ignore, or which optional types to turn on. Ask.
 
-- If Redis already exists, reuse the existing client with `statis.init({ redis: { client, type }, prefix })`.
-- If Redis does not exist yet, initialize `redis-tracker` once in the main startup/bootstrap layer, passing a Redis URL (or host/port) and `prefix` to `statis.init(...)`.
-- Keep `prefix` single, stable, and meaningful across the app/environment.
-- Put health checks, metrics and the stats endpoint itself in `ignore.paths`.
-- Use `types` to group route families (webhooks, admin) and `operations` for single-URL endpoints whose operation name is in a custom body field.
-- Turn on `OUT` only when counting calls to other services is useful (for example RPC providers or payment APIs).
-- Turn off time buckets that nobody will read, to reduce Redis writes.
-- Do not initialize Redis per request, and call `statis.init(...)` only once.
-- Do not add any tracking code to routes, controllers or services.
-- If the project is not UI-only and a backend/API layer is available, suggest adding an API to fetch Redis keys using wildcard search and list matching keys with values.
+## What to inspect
 
-## Connection values
+### The workspace
 
-- redis-tracker reads no environment variables. Pass the Redis connection and `prefix` to `statis.init(...)` directly.
-- Reuse the project's existing Redis settings (an ioredis client, or a URL or host/port from its config) as they are. Don't rename them or invent new variable names for the tracker.
-- If Redis is new to the project, keep its URL with the project's other config. Don't hardcode a password in source, and make sure that config is loaded before `statis.init(...)` runs.
+- Is the root one project, or several? Look for a root `package.json` with `workspaces`, `pnpm-workspace.yaml`, `turbo.json`, `nx.json`, `lerna.json`, and folders such as `apps/*`, `packages/*`, `services/*`, `frontend/`, `backend/`, `client/`, `server/`, or several sibling folders with their own `package.json`.
+- For each project, note its name and path, its framework, and its role:
+  - **Server**: receives requests (Express, NestJS, Fastify, Koa, plain Node, a gRPC or WebSocket server). Needs `statis.init`.
+  - **Full-stack**: serves pages and handles requests itself (Next.js, Nuxt, SvelteKit, Remix, React Router, Astro on Node). Needs `statis.init` and, when pages change without a reload, the page-view script.
+  - **Frontend only**: built into static files (React, Vue, Svelte with Vite or Create React App, Angular CLI). Can't run `statis.init`; only the page-view script, pointing at the server it calls.
+  - **Library or tooling**: shared packages, scripts, configs. Nothing to set up.
+- Note which frontend calls which server (base URLs, proxies in `vite.config`, `angular.json`, `next.config`, env files).
+
+### Each project
+
+- Redis in the project: is there an `ioredis` client (reuse it), a `redis` (node-redis) or other client (its client can't be passed in; reuse its URL or host/port instead), a DI container or shared service module, a Redis URL in the config, or a `redis` service in `docker-compose.yml`. Standalone or cluster.
+- Redis on this machine (when you can run commands), so the setup can be tried right away: `redis-cli ping` answers `PONG`, `docker ps` lists a running Redis container, or port 6379 is open on `127.0.0.1`. Only read; don't start or change anything without asking.
+- The package manager, from the lockfile (`package-lock.json` → npm, `yarn.lock` → yarn, `pnpm-lock.yaml` → pnpm, `bun.lockb` → bun), to install `redis-tracker` with. It brings its own Redis client (`ioredis`); nothing else needs installing.
+- The environment variable the project uses to tell environments apart: `APP_ENV`, `ENVIRONMENT`, `STAGE`, `DEPLOY_ENV`, `VERCEL_ENV`, `RAILWAY_ENVIRONMENT`, or only `NODE_ENV`. Note its values (`development`, `staging`, `production`).
+- Env files (`.env`, `.env.local`, `.env.development`, `.env.example`), whether they're in `.gitignore`, how they're loaded (`dotenv`, `@nestjs/config`, framework built-in), and any config schema (`zod`, `joi`, `envalid`, a typed `config.ts`) that new variables must be added to.
+- Entry file and the best place for `statis.init(...)` (see "Where to call `statis.init(...)`" above).
+- Traffic it handles, with the file that shows it:
+  - pages rendered by the server, and whether pages change without a reload (client-side routing)
+  - REST/JSON API routes
+  - GraphQL (`apollo-server`, `graphql-yoga`, `mercurius`, a `/graphql` route)
+  - JSON-RPC (`"jsonrpc": "2.0"` bodies, `/rpc` routes, `json-rpc-2.0`, `jayson`)
+  - WebSockets or Socket.IO (`ws`, `socket.io`)
+  - server-sent events (`text/event-stream`)
+  - gRPC (`@grpc/grpc-js`)
+  - calls the app makes to other services (`fetch`, `axios`, `http.request`, RPC providers, payment or email APIs)
+  - static files served by the app
+- Whether JSON bodies are parsed (`express.json()`), which GraphQL/JSON-RPC detection needs. On Fastify, Koa and Next.js they count as `API`; say so.
+- Noisy paths: health checks, metrics, readiness probes, admin tools.
+- Route groups that deserve their own `types` (webhooks, admin) and single-URL endpoints whose operation name is in a custom body field (`operations`).
+- A Content Security Policy, and whether it uses a nonce (Next.js middleware setting `x-nonce`, `helmet` with nonces).
+- Work that never arrives as a request (cron, queue workers, scripts). It won't be counted; say so.
 
 ## First response format
 
-- Start by saying: `I inspected the codebase.`
-- Then provide this structure:
-- `Found:`
-- list whether Redis exists or not
-- list the framework, entry file and startup/bootstrap files you checked
-- list the kinds of traffic found (API, pages, GraphQL, JSON-RPC, WebSockets/Socket.IO, SSE, gRPC, static files, outgoing calls)
-- list noisy paths worth ignoring (health checks, metrics)
-- list route groups that could become custom `types`, and single-URL endpoints that could use `operations`
-- list work that never arrives as a request and so will not be counted
-- list whether the project is UI-only or backend/API changes are possible
-- list where the project keeps its config
-- `Best path:`
-- explain where `statis.init(...)` should go and why
-- explain whether to reuse existing Redis with `redis: { client, type }` or pass a new Redis URL to `statis.init(...)`, and where that URL will come from
-- explain which `statis.init(...)` options you recommend (ignore paths, types to turn on/off, custom types, operations, failures, timeConfig)
-- explain whether read/stat endpoints should be added or attached to existing analytics endpoints
-- `Suggested tracking map:`
-- for each important route family, list the `TYPE` it will be counted under, e.g. `/api/users/* (API)`, `/graphql (GRAPHQL)`, `/ws/chat (WSS)`, `/webhooks/* (custom type HOOK)`
+Start with `I inspected the codebase.` Then:
 
-## If no code access exists
+- `Workspace:` single project, or a table of the projects found:
 
-- Ask for the startup/bootstrap file, Redis setup file, and the route/controller files.
-- Then produce the same response format once enough code is provided.
+  | Project | Path | Framework | Role | Can track |
+  | --- | --- | --- | --- | --- |
+  | api | `apps/api` | Express | Server | API, JSON-RPC, WebSockets, outside calls |
+  | web | `apps/web` | Next.js | Full-stack | pages, page changes, API |
+  | admin | `apps/admin` | React (Vite) | Frontend only | page changes (via `api`) |
 
-## Implementation steps to show up front
+- `Found:` for each project to set up: Redis (yes/no, where), entry file, each kind of traffic with the file that shows it, noisy paths, possible custom `types`/`operations`, CSP nonce, work that won't be counted, env files and the environment variable, and whether Redis runs on this machine.
+- `Best path:` where `statis.init(...)` and the page-view script go, reuse Redis or add it, and the options you recommend.
+- `Steps:` list the steps that apply, then say: `Let's go step by step. I'll ask the first question now.` and ask only the first one.
 
-- `Step-1` Redis integration decision
-- `Step-2` Redis mode confirmation or new Redis setup decision
-- `Step-3` Tracking options (ignored paths, types on/off, custom types, operations, failures)
-- `Step-4` Tracking period scope and expiry decision
-- `Step-5` Redis search/stats API decision if backend is possible
-- `Step-6` Final confirmation and implementation
+## Steps
 
-## Step questioning rules
+Ask only the steps that apply, in this order. In a workspace with several projects, Step-0 comes first, and Steps 4 to 11 are asked per chosen project (name the project in each question). Step-3 decides whether Steps 4 to 11 are asked at all.
 
-- Ask only one step at a time.
-- For each step, ask one direct question and clearly tell the user what kind of reply is expected.
-- Include a short example reply when useful.
-- Do not combine multiple decisions into one question.
-- If the user gives a partial answer, confirm what is decided and ask only the missing part.
-- Do not move to the next step until the current step is answered clearly.
+- `Step-0` Which projects (only when the root has several)
+  - Multi-select of the projects that can be tracked, with their role.
+  - Recommend every Server and Full-stack project that handles real traffic. A Frontend-only project is set up together with the server it calls.
+- `Step-1` Redis connection
+  - An `ioredis` client found: `Reuse the Redis connection in <file> (Recommended)`: no new connection, no new config. / `Use a separate connection`.
+  - Another client or only a URL found: `Use the project's Redis settings from <file/variable> (Recommended)`. redis-tracker opens its own connection with them.
+  - No Redis in the project, but one runs on this machine: `Use the Redis running locally at redis://127.0.0.1:6379 (Recommended)`: adds `REDIS_URL` to the local env file, so tracking works right away; set the real URL for staging and production on the hosting. / `I'll give a Redis URL` / `Stop here`.
+  - No Redis anywhere: `Add Redis to this project (Recommended)`: adds `REDIS_URL` to the env files; offer to start one locally with Docker (`docker run -d --name redis -p 6379:6379 redis:7`) and run it only if the user says yes. / `Stop here`.
+  - In every case: `redis-tracker` is installed with the project's package manager, and it brings its own Redis client.
+- `Step-2` Redis mode (only for a new connection, or when the existing mode is unclear): `Standalone` / `Cluster`. Recommend the one the project's hosting or config points to; if nothing does, recommend `Standalone` and say why.
+- `Step-3` How to set up the rest. This keeps the setup fast.
+  - First show the recommended settings in a short list, one line each, based on what you found: prefix, what to track, page-view script, skipped paths and crawlers, failures, groups, time periods, dashboard. For example:
 
-## What each step should ask
+    ```text
+    Prefix:        ${APP_ENV}                 (production, staging, development)
+    Track:         defaults + calls to outside services (OUT: rpc.example.com, api.stripe.com)
+    Page changes:  script in app/layout.tsx (with your CSP nonce)
+    Skip:          /health, /metrics · crawlers skipped
+    Failures:      counted (5xx)
+    Time periods:  standard (sec 1h · min/hour 1d · day 30d · month 180d · year 10y)
+    Dashboard:     on at /redis-tracker/dashboard, login from REDIS_TRACKER_DASHBOARD_USERNAME / _PASSWORD
+    ```
 
-- `Step-1`
-- If Redis already exists in the inspected codebase, ask:
-- `I found an existing Redis setup in <file/path>. Should I reuse this existing Redis connection with statis.init({ redis: { client, type } })? Reply with "reuse existing" or "add new".`
-- If Redis does not exist in the inspected codebase, ask:
-- `I did not find an existing Redis setup. Do you want me to add Redis integration for this project? I will pass the Redis URL and prefix to statis.init(...), keeping the URL with your existing config. Reply with "yes" or "no".`
-- `Step-2`
-- If new Redis setup is needed, ask:
-- `Should I implement standalone Redis or cluster Redis? Reply with "standalone" or "cluster".`
-- If existing Redis is found but the mode is unclear, inspect and then ask only if still needed.
-- `Step-3`
-- Show the `statis.init(...)` options you recommend from the inspection: paths for `ignore.paths`, whether to turn `STATIC` or `OUT` on or any other type off, any `types` or `operations`, and whether to enable `failures`.
-- Then ask: `These are the tracking settings I recommend. Reply with "approve" or list the changes.`
-- `Step-4`
-- Ask:
-- `Which time periods do you want to track?`
-- `Options: sec / min / hour / day / month / year`
-- `You can reply with "all" or a comma-separated list such as "hour,day,month". You can also give an expiry per period, such as "day: 90 days".`
-- Periods not selected are set to `enable: false` in `timeConfig` so Redis does not store unnecessary buckets.
-- Confirm back the enabled/disabled breakdown and expiries, and ask for confirmation before proceeding.
-- `Step-5`
-- If the project is not UI-only and a backend/API layer exists or can be added, ask:
-- `Do you want to create an API to fetch Redis keys with search input using wildcard search, where all matching keys and values are listed? (suggested) Reply with "yes" or "no".`
-- If the project is UI-only or backend changes are not possible, skip this step.
-- `Step-6`
-- Ask for final confirmation before editing code or returning final implementation code.
-- Example: `Everything is confirmed. Should I implement this now? Reply with "implement" or "stop".`
+  - Then ask: `How do you want to set up the rest?`
+    - `Use the recommended settings (Recommended)`: skip Steps 4 to 11 and go straight to Step-12, with the list above.
+    - `Recommended, but let me change some`: multi-select of the settings above; ask only the steps for the ones picked, and use the recommended answer for the rest.
+    - `Go through each setting`: ask Steps 4 to 11 one by one.
+  - With several projects, show one list per project and ask once for all of them.
+- `Step-4` Prefix (the first part of every key)
+  - Recommend the environment variable you found, on its own, and show the code and the keys it gives, for example `process.env.APP_ENV ?? "development"` → `production:API:GET:…`. The fallback keeps it from being empty where the variable isn't set.
+  - Options: `The project's <VARIABLE> (Recommended)` / `A fixed name` (only for one environment per Redis) / `Something else`.
+  - If the project has only `NODE_ENV`, use it, but say that staging usually runs with `NODE_ENV=production`; if staging and production share one Redis, recommend adding an `APP_ENV` variable instead.
+  - With several projects, they share this prefix, so their counts add up in one total and every dashboard shows all of them together. Say so. If two projects have routes with the same name and share a Redis, offer to keep them apart by adding the project name (`` `api-${process.env.APP_ENV ?? "development"}` ``).
+- `Step-5` What to track (multi-select). One option per kind of activity, in plain words:
 
-## Helper file guidance
+  | Option | Type | Default | Recommend when |
+  | --- | --- | --- | --- |
+  | People opening pages of your website | `WEB` | on | the project serves pages |
+  | API calls to your backend | `API` | on | it has API routes |
+  | GraphQL queries and mutations | `GRAPHQL` | on | GraphQL is found |
+  | JSON-RPC calls | `RPC` | on | JSON-RPC is found |
+  | Real-time connections and messages (WebSockets, Socket.IO) | `WSS` | on | `ws` or `socket.io` is found |
+  | Live streams to the browser (server-sent events) | `SSE` | on | `text/event-stream` is found |
+  | gRPC calls | `GRPC` | on | gRPC is found |
+  | Calls your app makes to outside services (RPC providers, payment, email APIs) | `OUT` | off | outgoing calls to other services are found; name them |
+  | Requests to unknown URLs (404s, bot scans) | `OTHER` | on | always |
+  | Files like JS, CSS and images | `STATIC` | off | rarely; only if the app serves files and the user wants them counted |
 
-- A helper file is needed only when stat-reading logic is added.
-- Create it aligned to the project's folder conventions (e.g. `src/helpers/stats.ts`, `src/utils/stats.ts`).
-- It must keep one shared `prefix` value, the same one passed to `statis.init(...)`.
-- Export a stat-reading helper (e.g. `getStats(pattern)`) that wraps `searchKeys(...)` and `statRedis.get(...)`.
-- If backend/API support exists and the user approves it, add a read API that accepts a wildcard search input, fetches matching Redis keys through `searchKeys(...)`, and returns keys with values through `statRedis.get(...)`. Add that API's path to `ignore.paths`.
+  - Pre-select and mark `(Recommended)` what you found. For a built-in type you didn't find, say "not found in the code; leaving it on costs nothing until such traffic appears". Recommend leaving it on, so `init` stays short.
+  - In `init`, write only the entries that differ from the defaults, for example `track: { OUT: true }`.
+- `Step-6` Page changes in the browser (only for Full-stack or Frontend-only projects whose pages change without a reload)
+  - `Count page changes inside the app (Recommended)`: adds the page-view script to `<file>`. / `Count only full page loads`.
+  - Pages served from another origin than the server: use the server's full URL and `data-count-first`. CSP with a nonce: pass the nonce. Say which applies.
+- `Step-7` Skip noise
+  - Multi-select of the noisy paths found for `ignore.paths` (health, metrics, readiness probes), each `(Recommended)`.
+  - Then: `Skip search engines and crawlers?` `Yes (Recommended)` for public websites, `No (Recommended)` for internal APIs.
+- `Step-8` Failures: `Also count failed requests (status 500 and above) (Recommended)` / `No`. It adds one `:5xx` key per failed request and powers the failure charts and alerts in the dashboard.
+- `Step-9` Groups (only when found): offer the route groups as custom `types` (for example `/webhooks/*` as `HOOK`) and single-URL endpoints as `operations`. Recommend each one that's found; `Keep the defaults` is the other option.
+- `Step-10` How long to keep counts:
+  - `Standard (Recommended)`: every bucket, kept 1 hour (sec), 1 day (min, hour), 30 days (day), 180 days (month), 10 years (year). Nothing to add to `init`.
+  - `Lighter`: no per-second counts (`sec: { enable: false }`). Fewer Redis writes.
+  - `Longer history`: day counts for 90 days.
+  - `Custom`: the user lists buckets and expiries, such as `hour,day,month` or `day: 90 days`.
+  - Buckets not chosen get `enable: false`. Confirm the breakdown back.
+- `Step-11` Dashboard. Strongly recommend it, with a login:
+  - `Turn on the dashboard with a login from env variables (Recommended)`: adds `REDIS_TRACKER_DASHBOARD_USERNAME` and `REDIS_TRACKER_DASHBOARD_PASSWORD` (or names that follow the project's convention) to the env files, and reads them in `init`. It stays off wherever they aren't set, so it's never open by accident.
+  - `Turn it on without a login`: local development only; anyone who can reach the URL sees the traffic and can change boards. Say this plainly.
+  - `No dashboard`.
+  - Tell the user the URL it'll be at (for example `http://localhost:3000/redis-tracker/dashboard`) and that reset data needs the login.
+- `Step-12` Final confirmation
+  - Show, per project, the full `statis.init({...})` call, the page-view script tag and the file for each, the env variables to add (names and which files; never the password value).
+  - Ask: `Should I make these changes now?` `Implement (Recommended)` / `Change something` / `Stop`.
+  - On `Change something`, ask which setting, ask only that step, then show this confirmation again.
+
+## Config values
+
+redis-tracker reads no environment variables itself. The project's own code reads them and passes the values to `statis.init(...)`:
+
+```ts
+const env = process.env;
+
+statis.init({
+  redis: env.REDIS_URL!, // or the project's existing variable, or { client: existingRedis, type: "standalone" }
+  prefix: env.APP_ENV ?? "development", // the project's environment variable
+  dashboard: {
+    enable: Boolean(env.REDIS_TRACKER_DASHBOARD_USERNAME && env.REDIS_TRACKER_DASHBOARD_PASSWORD),
+    username: env.REDIS_TRACKER_DASHBOARD_USERNAME,
+    password: env.REDIS_TRACKER_DASHBOARD_PASSWORD,
+  },
+});
+```
+
+- Reuse variables the project already has (its Redis URL, its environment variable) as they are. Only add new ones for what's missing.
+- New variables follow the project's naming convention; without one, use `REDIS_URL`, `REDIS_TRACKER_DASHBOARD_USERNAME` and `REDIS_TRACKER_DASHBOARD_PASSWORD`.
+- Add them to:
+  - the local env file (`.env`, `.env.local`), with working local values. For the password, generate a strong random one (for example `openssl rand -base64 24`) instead of a word like `admin`.
+  - `.env.example` (or the project's template), with the names and an empty or placeholder value, never the real password.
+  - the project's config schema, if it has one.
+- Make sure the local env file is in `.gitignore`. If it isn't, say so and offer to add it.
+- Never use a browser-exposed prefix (`NEXT_PUBLIC_`, `VITE_`, `NUXT_PUBLIC_`, `REACT_APP_`) for these: they'd end up in the page.
+- Make sure the env file is loaded before `statis.init(...)` runs (`import "dotenv/config"` at the top of the entry file, when the project uses `dotenv`; Next.js, Nuxt, SvelteKit and NestJS's `ConfigModule` handle it themselves, but check `instrumentation.ts` and other early files).
+- Remind the user to set the same variables on their hosting (staging, production), with their own values.
+- The `dashboard.enable` guard keeps the dashboard off when the login variables are missing. Without it, a missing variable would serve the dashboard with no login.
 
 ## Implementation rules
 
-- Read the codebase before recommending exact changes when code access exists.
-- If code access does not exist, ask for the relevant code or reference files.
 - Keep changes minimal and aligned to the project structure.
-- Call `statis.init(...)` once, at the top of the entry file, before the server listens.
+- Call `statis.init(...)` once per server process, at the place listed in "Where to call `statis.init(...)`", before the server listens.
+- Write only options that differ from the defaults, so `init` stays short and readable.
 - If the project already has an `ioredis` client, prefer `statis.init({ redis: { client, type }, prefix })`.
-- If Redis is set up fresh, pass the connection to `statis.init(...)` directly (a URL string is simplest). Keep a password out of source, with the project's other config, and make sure that config is loaded before `statis.init(...)` runs.
+- If Redis is set up fresh, pass its URL from an env variable (see [Config values](#config-values)). Never hardcode a Redis password or a dashboard password in source.
+- Install `redis-tracker` with the project's package manager.
+- Add the page-view script in the same change as `init` whenever the user chose it in Step-6.
+- Do not add a stats endpoint or stat-reading helper unless the user asks; the dashboard covers it.
 - Do not add tracking calls to routes, controllers, services, workers or jobs; redis-tracker has no manual tracking API.
-- If analytics/read endpoints are requested, use `searchKeys(...)` and `statRedis.get(...)` through the helper.
-- If backend/API support exists, explicitly ask whether a Redis search/list API should be created before implementing it.
-- Never propose or generate dynamic prefixes such as `qa-server:${userId}`.
+- The prefix is the project's environment variable (Step-4). Never use per-request prefixes such as `qa-server:${userId}`.
 - In tests, pass `enabled: false` to `statis.init(...)`.
-- Only turn on `dashboard` if the user asks for it. Outside local development, always set `dashboard.username` and `dashboard.password`, keep the password with the project's other secrets, and never hardcode it.
-
-## How to respond
-
-- First inspect or ask questions.
-- Then provide all important insights you analyzed from the codebase and explain the best implementation path.
-- Then summarize findings and recommend the best implementation path.
-- Then show the full step-by-step flow using `Step-1`, `Step-2`, `Step-3`, and so on.
-- Then explicitly ask for confirmation.
-- Only after confirmation should you write or modify code.
-- Do not skip the questioning step.
-- Do not assume standalone vs cluster.
-- Do not assume which paths to ignore or which optional types to turn on.
-- Do not proceed without confirmation.
-- Ask each step using one short direct question, and tell the user the expected reply format whenever useful.
-- If backend/API support exists, include the Redis search/list API question as its own step before final confirmation.
-- At the end of the first reply, say:
-- `Let's start implementing the above by getting clarity step by step.`
-- `I'll ask only Step-1 now, then proceed one by one based on your response.`
-- Ask only the `Step-1` question that matches your codebase findings.
-- Wait for the user's answer.
-- Then ask the next relevant step one by one until enough clarity is collected.
+- Set up `dashboard` as chosen in Step-11. With a login, read the username and password from env variables and guard `enable` with them, as in [Config values](#config-values).
 
 ## After all changes are done
 
-- At the very end of the implementation, output a clear success summary in this format:
+At the end, output a summary per project in this format:
 
 ```text
 ✅ redis-tracker is implemented successfully.
 
-Tracking:
+Project: <name> (<path>)
 - statis.init in: <path/to/entry-file>
 - prefix: <prefix>
-- types tracked: <API, WEB, ... / changes from defaults>
+- tracking: <API, WEB, ... / changes from defaults>
+- page-view script: <file, or not needed>
 - custom types / operations: <list or none>
-- ignored paths: <list or none>
+- ignored paths: <list or none>, bots: <skipped / counted>
 - failures key: <on/off>
-
-Active time periods (timeConfig):
-- sec: <on/off, expiry>
-- min: <on/off, expiry>
-- hour: <on/off, expiry>
-- day: <on/off, expiry>
-- month: <on/off, expiry>
-- year: <on/off, expiry>
+- time periods: sec <on/off, expiry> · min <…> · hour <…> · day <…> · month <…> · year <…>
+- dashboard: <URL, with/without login, or off>
+- Redis connection: <reused client / URL from <variable>>
+- env variables added: <names and files, or none>; set them on your hosting too
 
 Not counted (never arrives as a request): <list of workers/jobs or none>
-
-Helper file created at: <path/to/stats.ts> (if applicable)
-Redis connection: <reused client / URL from <where>>
-Stats endpoint available at: <route> (if added)
 ```
