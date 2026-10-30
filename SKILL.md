@@ -63,7 +63,7 @@ statis.init({
 | `enabled` | `true` | `false` turns tracking off (e.g. in tests) |
 | `dashboard` | off | `{ enable: true, url?: "redis-tracker/dashboard", username?, password? }` serves a built-in dashboard from the app's own server |
 
-- Single-page apps (React, Angular, Vue, Next.js): the server sees only the first page load. To count page changes, add `<script src="/redis-tracker/view.js" defer></script>` to the app's HTML (Next.js: `next/script` in `app/layout.tsx` or `pages/_app.tsx`; Angular: `src/index.html`; Vite/CRA: `index.html`; Nuxt: `app.head.script` in `nuxt.config.ts`; SvelteKit: `src/app.html`; Remix/React Router: `app/root.tsx`; anything else: the HTML every page shares). It posts each new path to `/redis-tracker/view`, counted as `WEB`. When the pages come from another origin, use the API server's full URL and add `data-count-first`. Next.js navigation data requests (`RSC: 1`, `/_next/data/`) aren't counted. Server-rendered sites where every link is a full page load don't need the script.
+- Single-page apps (React, Angular, Vue, Next.js): the server sees only the first page load. To count page changes, add `<script src="/redis-tracker/view.js" defer></script>` to the app's HTML (Next.js: `next/script` in `app/layout.tsx` or `pages/_app.tsx`; Angular: `src/index.html`; Vite/CRA: `index.html`; Nuxt: `app.head.script` in `nuxt.config.ts`; SvelteKit: `src/app.html`; Remix/React Router: `app/root.tsx`; anything else: the HTML every page shares). It posts each new path to `/redis-tracker/view`, counted as `WEB`. When the pages come from another origin, use the API server's full URL and add `data-count-first`. Next.js navigation data requests (`RSC: 1`, `/_next/data/`) aren't counted. Server-rendered sites where every link is a full page load don't need the script. If the app's Content Security Policy uses a nonce, pass the same nonce to the tag (Next.js: `nonce={nonce}` on `<Script>`), or the browser blocks it.
 
 - Key layout:
 - `{prefix}:{TYPE}:{ACTION}:{name}:{bucket}:{bucket_id}`
@@ -92,7 +92,12 @@ statis.init({
 - Express, Fastify, Koa, plain Node: top of `server.ts` / `index.js`
 - NestJS: `main.ts`, before `NestFactory.create()`
 - Next.js: `instrumentation.ts`, inside `register()`, guarded by `if (process.env.NEXT_RUNTIME === "nodejs")` and loading the package with `await import("redis-tracker")`
-- Nuxt, SvelteKit (`adapter-node`), Astro (`@astrojs/node`): code that runs once at server start in the same process, e.g. a Nuxt server plugin or SvelteKit `src/hooks.server.ts`
+- Nuxt: `server/plugins/redis-tracker.ts` inside `defineNitroPlugin(() => { ... })`
+- SvelteKit (`adapter-node`): top of `src/hooks.server.ts`
+- Remix / React Router: top of `app/entry.server.tsx`
+- Astro (`@astrojs/node`): top of `src/middleware.ts`
+- React, Vue, Angular, Svelte SPAs (Vite, CRA, Angular CLI): in the API server they call, not in the app; the page-view script then uses the API server's full URL with `data-count-first` when the pages are served from elsewhere
+- For every framework whose pages change without a reload, also add the page-view script (see the single-page apps bullet above) in the same change, so the setup is complete.
 - `prefix` must stay a single stable app/environment value such as `qa-server`, `prod-server`, or `payments-api`. Never put dynamic values such as `userId`, `walletAddress`, `tenantId` or `sessionId` inside it.
 - Use the same `prefix` in every service that should share one `global` total.
 
