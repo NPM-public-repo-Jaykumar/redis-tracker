@@ -1,6 +1,6 @@
 {
   "name": "redis-tracker",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "Redis based RPC tracking counters",
   "author": "codezeros",
   "repository": {
@@ -31,11 +31,12 @@
     "build": "rm -rf dist && tsc && node scripts/copy-assets.js dist && node scripts/obfuscate-dist.js",
     "build:plain": "tsc && node scripts/copy-assets.js dist",
     "test": "tsc -p tsconfig.test.json && node scripts/copy-assets.js .test-build/src && node --test --test-concurrency=1 \".test-build/test/*.test.js\"",
-    "prepublishOnly": "npm run release:check && npm run release:bump && npm run build",
+    "prepublishOnly": "npm run release:check && npm run release:bump && npm run build && npm run prepublish-release",
     "postpublish": "npm run postpublish-release && npm run public-postpublish-release",
+    "prepublish-release": "node scripts/prepublish-release.js",
     "postpublish-release": "node scripts/postpublish-release.js",
     "public-postpublish-release": "node scripts/public-postpublish-release.js",
-    "release:bump": "if [ \"$npm_config_dry_run\" = true ]; then echo \"Dry run: version not bumped\"; elif [ -n \"$(npm view \"$npm_package_name@$npm_package_version\" version 2>/dev/null)\" ]; then npm version patch --no-git-tag-version; else echo \"v$npm_package_version is not on npm yet, publishing it as is\"; fi",
+    "release:bump": "node scripts/bump-version.js",
     "release:check": "test \"$(git rev-parse --abbrev-ref HEAD)\" = main || { echo \"Release from the main branch\"; exit 1; }; npm owner ls \"$npm_package_name\" 2>/dev/null | grep -q \"^$(npm whoami 2>/dev/null) \" || { echo \"Log in to npm (npm login) as an owner of $npm_package_name first\"; exit 1; }"
   },
   "dependencies": {
