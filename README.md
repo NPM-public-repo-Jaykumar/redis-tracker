@@ -901,24 +901,3 @@ References:
 NPM: https://www.npmjs.com/package/redis-tracker
 SKILL.md: https://github.com/NPM-public-repo-Jaykumar/redis-tracker/blob/main/SKILL.md
 ```
-
-### Development
-
-Build:
-
-```bash
-npm run build
-```
-
-Test (needs Redis on `127.0.0.1:6379`, or set `REDIS_HOST` / `REDIS_PORT`):
-
-```bash
-npm test
-```
-
-Test locally in another project:
-
-```bash
-npm link                       # in this repo
-npm link redis-tracker         # in your project
-```
