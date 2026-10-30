@@ -20,3 +20,5 @@ export declare function setAutoConfig(cfg: AutoConfig | null): void;
 export declare function getAutoConfig(): AutoConfig | null;
 export declare function setInitOptions(options: InitOptions | null): void;
 export declare function getInitOptions(): InitOptions | null;
+export declare function isStarted(): boolean;
+export declare function markStarted(): void;

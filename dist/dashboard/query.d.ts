@@ -20,6 +20,7 @@ type Route = {
     action: string;
     name: string;
 };
+export declare function clearPatternCache(): void;
 export declare function matchRoutes(type: string, action: string, name: string, now?: number): Promise<Route[]>;
 export declare function query(raw: unknown, now?: number): Promise<{
     range: TimeBucket;

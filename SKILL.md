@@ -63,6 +63,8 @@ statis.init({
 | `enabled` | `true` | `false` turns tracking off (e.g. in tests) |
 | `dashboard` | off | `{ enable: true, url?: "redis-tracker/dashboard", username?, password? }` serves a built-in dashboard from the app's own server |
 
+- Single-page apps (React, Angular, Vue, Next.js): the server sees only the first page load. To count page changes, add `<script src="/redis-tracker/view.js" defer></script>` to the app's HTML (Next.js: `next/script` in `app/layout.tsx` or `pages/_app.tsx`; Angular: `src/index.html`; Vite/CRA: `index.html`). It posts each new path to `/redis-tracker/view`, counted as `WEB`. When the pages come from another origin, use the API server's full URL and add `data-count-first`. Next.js navigation data requests (`RSC: 1`, `/_next/data/`) aren't counted.
+
 - Key layout:
 - `{prefix}:{TYPE}:{ACTION}:{name}:{bucket}:{bucket_id}`
 - `{prefix}:{TYPE}:{ACTION}:{name}:5xx:{bucket}:{bucket_id}` (only with `failures: true`)

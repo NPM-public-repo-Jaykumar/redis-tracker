@@ -13,10 +13,25 @@ export type RouteStats = {
     yesterday: number | null;
     series?: Series;
 };
+export type Window = {
+    when: string;
+    name: string;
+    prevWhen: string;
+    prevName: string;
+    unit: "minute" | "hour" | "day" | "month";
+    range: TimeBucket;
+    recent: number;
+    rolling: boolean;
+    minTraffic: number;
+    season?: number;
+    scan?: number;
+};
+export declare const NOW_WINDOW: Window;
 export type AnalyzeInput = {
     failures: boolean;
     maxNamesPerType: number;
     dayFraction: number;
+    window?: Window;
     global: {
         ids: string[];
         counts: number[];
@@ -54,6 +69,7 @@ export declare function analyze(input: AnalyzeInput): {
         info: number;
     };
 };
+export declare function clearInsightsCache(): void;
 export declare function topView(now?: number): Promise<{
     routes: {
         type: string;
@@ -78,4 +94,5 @@ export declare function insightsView(now?: number): Promise<{
         info: number;
     };
 }>;
+export declare function periodInsights(periodParam: string | null, now?: number): Promise<unknown>;
 export {};

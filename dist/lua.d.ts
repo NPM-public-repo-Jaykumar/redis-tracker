@@ -1,1 +1,2 @@
 export declare const INCRBY_WITH_EXPIRE = "\nlocal v = redis.call(\"INCRBY\", KEYS[1], ARGV[1])\nif v == tonumber(ARGV[1]) then\n  redis.call(\"EXPIRE\", KEYS[1], tonumber(ARGV[2]))\nend\nreturn v\n";
+export declare const DECRBY_OR_DELETE = "\nif redis.call(\"EXISTS\", KEYS[1]) == 0 then return 0 end\nlocal v = redis.call(\"DECRBY\", KEYS[1], ARGV[1])\nif v <= 0 then redis.call(\"DEL\", KEYS[1]) end\nreturn v\n";

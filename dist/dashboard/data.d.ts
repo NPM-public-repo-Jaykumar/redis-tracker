@@ -9,70 +9,97 @@ export declare function config(): {
     cfg: AutoConfig;
     buckets: TimeBucket[];
 };
+export type Span = {
+    key: TimeBucket | "week";
+    bucket: TimeBucket;
+    n: number;
+};
+export declare function rangesOf(buckets: TimeBucket[]): (TimeBucket | "week")[];
 export declare function seriesMany(wanted: [string, TimeBucket, number][], now: number): Promise<{
     bucket: TimeBucket;
     ids: string[];
     counts: number[];
 }[]>;
 export declare function typesOf(cfg: AutoConfig): string[];
-export declare function overview(range: string | null, now?: number): Promise<{
-    prefix: string;
-    buckets: TimeBucket[];
-    global: {
-        total: boolean;
-        perType: boolean;
-    };
-    chart: {
-        bucket: TimeBucket;
-        ids: string[];
-        counts: number[];
-    };
-    sec: number[] | null;
-    secIds: string[] | null;
-    sparkIds: string[] | null;
-    now: {
-        perSec: number | null;
-        min: number | null;
-        prevMin: number | null;
-        hour: number | null;
-        day: number | null;
-        yesterday: number | null;
-    };
-    types: {
-        type: string;
-        perSec: number | null;
-        min: number;
-        day: number;
-        spark: number[];
-        chart: number[];
-    }[];
-}>;
+export declare function clearRouteCache(): void;
 export declare function routesOf(prefix: string, type: string, buckets: TimeBucket[], now: number): Promise<{
     action: string;
     name: string;
 }[]>;
-export declare function typeView(typeParam: string | null, range: string | null, now?: number): Promise<{
+export type RangeRoute = {
     type: string;
+    action: string;
+    name: string;
+    total: number;
+    now: number;
+    errors: number | null;
+};
+export declare function clearRangeCache(): void;
+export declare function rangeRoutes(span: Span, now: number, onlyType?: string): Promise<RangeRoute[]>;
+export declare function overview(range: string | null, now?: number): Promise<{
+    prefix: string;
     buckets: TimeBucket[];
+    ranges: (TimeBucket | "week")[];
+    range: TimeBucket | "week";
+    global: {
+        total: boolean;
+        perType: boolean;
+    };
     failures: boolean;
     chart: {
         bucket: TimeBucket;
         ids: string[];
         counts: number[];
     };
-    perSec: number | null;
     now: {
-        min: number | null;
-        day: number | null;
+        total: number;
+        current: number;
+        previous: number | null;
+        average: number;
+        peak: {
+            count: number;
+            id: string | null;
+        };
     };
-    routes: {
-        min: number | null;
-        hour: number | null;
-        day: number | null;
-        errors: number | null;
+    types: {
+        type: string;
+        total: number;
+        now: number;
+        chart: number[];
+    }[];
+    top: {
+        share: number;
+        type: string;
         action: string;
         name: string;
+        total: number;
+        now: number;
+        errors: number | null;
     }[];
+}>;
+export declare function typeView(typeParam: string | null, range: string | null, now?: number): Promise<{
+    type: string;
+    buckets: TimeBucket[];
+    ranges: (TimeBucket | "week")[];
+    range: TimeBucket | "week";
+    failures: boolean;
+    chart: {
+        bucket: TimeBucket;
+        ids: string[];
+        counts: number[];
+    };
+    now: {
+        errors: number | null;
+        total: number;
+        current: number;
+        previous: number | null;
+        average: number;
+        peak: {
+            count: number;
+            id: string | null;
+        };
+    };
+    routes: RangeRoute[];
 }>;
 export declare function routeView(q: URLSearchParams, now?: number): Promise<{
     key: string;

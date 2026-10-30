@@ -6,7 +6,7 @@ You call it once at startup. Your routes need no tracking code.
 
 ## Contents
 
-- **[Getting started](#getting-started):** [Install](#install) · [Quick start](#quick-start) · [Dashboard](#dashboard) · [Read the counts](#read-the-counts) · [Connect to Redis](#connect-to-redis) · [Where to call `init`](#where-to-call-init)
+- **[Getting started](#getting-started):** [Install](#install) · [Quick start](#quick-start) · [Page views in single-page apps](#page-views-in-single-page-apps) · [Dashboard](#dashboard) · [Read the counts](#read-the-counts) · [Connect to Redis](#connect-to-redis) · [Where to call `init`](#where-to-call-init)
 - **[Settings](#settings):** [Expiry](#expiry) · [Skip requests](#skip-requests) · [Choose what to track](#choose-what-to-track) · [Custom types](#custom-types) · [One URL, many operations](#one-url-many-operations) · [Name requests yourself](#name-requests-yourself) · [Limits](#limits) · [All options](#all-options)
 - **[How it works](#how-it-works):** [Redis keys](#redis-keys) · [What gets counted](#what-gets-counted) · [How routes are named](#how-routes-are-named) · [How it behaves](#how-it-behaves)
 - **[More](#more):** [Examples](#examples) · [TypeScript](#typescript) · [Demo](#demo) · [AI Prompt](#ai-prompt) · [Development](#development)
@@ -25,6 +25,12 @@ yarn:
 
 ```bash
 yarn add redis-tracker
+```
+
+If npm stops with `ERESOLVE could not resolve`, the conflict is between other packages already in your project (for example, a package that only supports React 18 in a React 19 app). redis-tracker has no peer dependencies. Install it with:
+
+```bash
+npm install redis-tracker --legacy-peer-deps
 ```
 
 ### Quick start
@@ -51,6 +57,25 @@ GET    /products/7     →  demo:WEB:GET:products/<id>:min:2026-10-29-23-35
 Each key reads `{prefix}:{TYPE}:{ACTION}:{name}:{bucket}:{bucket_id}`, and its value is the number of requests in that period. [Redis keys](#redis-keys) explains each part.
 
 Your routes don't change. Next, [read the counts](#read-the-counts).
+
+### Page views in single-page apps
+
+In React, Angular, Vue and Next.js apps, moving to another page happens in the browser, so your server sees only the first page load. To count every page change, add this script to your app's HTML. redis-tracker serves it from your server:
+
+```html
+<script src="/redis-tracker/view.js" defer></script>
+```
+
+- **Next.js** (App Router): add it in `app/layout.tsx` with `<Script src="/redis-tracker/view.js" strategy="afterInteractive" />` from `next/script`. Pages Router: the same in `pages/_app.tsx`.
+- **React, Vue** (Vite, Create React App): add the tag to `index.html`.
+- **Angular**: add the tag to `src/index.html`.
+- **Pages served from somewhere else** (a CDN, or a dev server on another port): use your API server's full URL, for example `<script src="https://api.example.com/redis-tracker/view.js" defer></script>`. Add `data-count-first` to the tag to also count the first page, since that server never sees it.
+
+Each time the path changes (`history.pushState`, `replaceState`, the back and forward buttons, or a `#/...` hash route), the script sends the new path to `POST /redis-tracker/view` with `navigator.sendBeacon`. It's counted as a `WEB` page view under the same name as a full page load, so `/products/12` and `/products/7` both count as `products/<id>`. Only the path counts: a new query string or `#section` on the same page doesn't. `track.WEB`, `ignore.paths` and `ignore.bots` apply as usual. The first page load is counted by your server, as before, so it isn't counted twice.
+
+Next.js fetches a page's data when the browser moves to it (requests with an `RSC: 1` header in the App Router, and `/_next/data/...` in the Pages Router). Those aren't counted as `API` calls; the script counts the page change instead.
+
+If your app sets a Content Security Policy, allow the script's origin in `script-src` and, when it's another server, in `connect-src`.
 
 ### Dashboard
 
@@ -79,10 +104,10 @@ Then open `/redis-tracker/dashboard` on your app's own host and port, for exampl
 
 Four tabs, and each part loads only when you open it:
 
-- **Overview**: the most important insights; requests per second, this minute, this hour and today; traffic stacked by type for the last 60 seconds, 60 minutes, 24 hours, 30 days, 12 months or years (hover a bar for each type and the total); one row per type; and the top routes today. The totals come from the `{prefix}:global` and `{prefix}:{TYPE}:global` keys, read by exact name. **Customize** turns it into a board you can rearrange.
-  - **Type** (click a row or a bar): its share by route, its methods, and every route with this minute, this hour, today and, with `failures: true`, 5xx today. Filter and sort them. The routes are listed with one `SCAN`, cached for 15 seconds.
-  - **Route** (click a route): its seconds, minutes, hours, days, months and years, how long each bucket is kept, the total, average, peak and lowest of the range, its failure rate, a chart with 5xx in red, and the raw bucket values.
-- **Insights**: problems found for you, grouped as critical, warning, spikes, drops, high traffic, scale, failures and new routes. Click one to open that route or type at the right time range. See [the rules](#insights).
+- **Overview**: your default board, when you set one (see [Boards](#boards)). Otherwise the built-in overview, with a range picker at the top: the last minute (per second), hour (per minute), 24 hours, 7 days, 30 days, 12 months or 5 years. Everything on the page covers that range: the requests in it, the current second, minute, hour, day, month or year next to the one before, the average and the busiest one; traffic stacked by type (hover a bar for each type and the total); one row per type with its trend, its current bucket (for example today), its total for the range (for example the last 7 days) and its share of that total; and the top routes, the same way. Outgoing calls (`OUT`) are listed too, but they aren't requests to your app, so they're not part of the total, the stacked chart or the shares, just like `{prefix}:global` leaves them out. The most important insights sit above them. The totals come from the `{prefix}:global` and `{prefix}:{TYPE}:global` keys, read by exact name; the routes of the last minute or hour are read by name for the routes seen in the last two hours, and longer ranges with one `SCAN`, cached for 15 seconds. **Customize** turns it into a board you can rearrange; saving it makes it your Overview.
+  - **Type** (click a row or a bar): the same range picker, and for that range its numbers, 5xx rate, share by route, methods, and every route with its requests, its current bucket and, with `failures: true`, its 5xx. Filter and sort them.
+  - **Route** (click a route): one tile per bucket (seconds to years), which also picks the range, with how long each bucket is kept; the total, average, peak and lowest of the range, its failure rate, a chart with 5xx in red, and the raw bucket values.
+- **Insights**: stats and problems for the last 15 minutes, the last hour, today, this week, this month, this quarter or this year, with reports you can export. Problems are grouped as critical, warning, spikes, drops, high traffic, scale, failures and new routes. Click one to open that route or type at the right time range. See [Insights](#insights).
 - **Boards**: your own dashboards. See [Boards](#boards).
 - **Settings**: try other settings and get the `init()` code for them. See [Settings](#settings-tab).
 
@@ -90,7 +115,13 @@ Hover any chart, including the small trend lines, to see the time and the value 
 
 #### Insights
 
-Each refresh checks every route counted today, and the minute-by-minute traffic of up to 100 of them (the busiest, plus any with failures):
+**Stats by period**: pick the last 15 minutes, the last hour, today, this week (from Monday), this month, this quarter or this year, all in IST. The whole tab follows it: the stats, the three summary cards and the list of problems. You get the requests and how they compare with the period before, 5xx and their share, how many routes were called, the busiest minute, hour, day or month, a chart over the period, the split by type and the top 10 routes. Periods are read from the `min`, `day`, `month` and `year` buckets with one `SCAN` each, cached for 30 seconds, so they need those buckets turned on and kept long enough (a week needs 7 days of `day` buckets).
+
+**Export report**: pick a period, then CSV (for Excel or Google Sheets), PDF (a print view; choose "Save as PDF") or JSON, then click Export. A report has the totals, the chart, the split by type and up to 500 routes with their 5xx. Each export is also saved in your Redis, so the dialog lists earlier reports to download again in any format, or delete. They're kept at `redis-tracker:reports:{prefix}` (a list) and `redis-tracker:report:{prefix}:{id}` (one string per report), the newest 100.
+
+**Reset data** (on the Overview and Insights): deletes counts for good. Pick what (everything, one type or one route) and when (all time, today, this week, this month, this quarter or this year). The dashboard first shows how many counters it will delete, then asks you to confirm. Only redis-tracker's own counter keys under your prefix are deleted, found with `SCAN` and checked against the key format, so other keys stay, and so do your boards and saved reports. Totals that include the deleted counts are lowered to match: deleting today lowers this month and this year, and deleting one route lowers its type's total and the overall total. Reset needs a dashboard login (`dashboard.username` and `dashboard.password`), so a dashboard without one can't delete anything. Each reset is written to your app's log, for example `[redis-tracker] dashboard reset (everything, all time): deleted 1345 counters, lowered 0 totals`.
+
+**Problems**: the rules below are checked over the picked period, against the period before it. Spikes, drops and recent failures use steps that fit the period: minutes for the last 15 minutes and the last hour, hours for today, days for a week or month, months for a quarter or year. Every complete step inside the period is searched, so a burst ten minutes ago still shows in the last hour, with its time ("40× its usual traffic at 17:31"); the usual level is the median of the 30 steps before it, or their average when most are empty, and hours and days are compared with the same hour or weekday earlier. Today and longer periods also list what the last hour found minute by minute, tagged "last hour", since a burst of a few minutes doesn't show in hourly or daily totals. The badge on the Insights tab and the Overview always show what's unusual right now (the last 30 minutes and today, like this table); the badge refreshes on every page, and those alerts are always in the list too, tagged "right now", whatever the period. Top routes can be folded away; the dashboard remembers it. Each refresh checks every route counted today, and the minute-by-minute traffic of up to 100 of them (the busiest, plus any with failures):
 
 | Group | When | Level |
 | --- | --- | --- |
@@ -132,9 +163,11 @@ Add charts in four steps:
 1. **What to track**: all traffic, a type, one route, or a pattern with `*` wildcards (for example type `API`, method `*`, name `api/users*`). The editor shows which routes a pattern matches. Add up to 6 series to compare them on one chart.
 2. **Show as**: number, line, area, bars, stacked bars, donut, table or insights. Donuts and tables split a type or pattern by route, all traffic by type, several series against each other, and one route into calls with and without 5xx, so you can switch any chart to any kind.
 3. **Measure**: requests, 5xx or failure rate (5xx needs `failures: true`).
-4. **Range and size**: 60 seconds to years; small, medium or wide.
+4. **Range and size**: the last minute (per second), hour (per minute), 24 hours, 30 days, 12 months or 5 years; then the size on the grid.
 
-Click **Edit board** to change a board: drag a chart onto another to move it, drag its corner to resize it, add, edit, duplicate or remove charts, and rename the board. Nothing changes until you click **Save**, which stores the board and opens it; **Cancel** drops the changes. Templates and **Customize** on the Overview open the same way, as an unsaved draft. Saving a customized overview makes it your default board, which opens at the dashboard URL.
+Click **Edit board** to change a board: drag a chart to move it (the others make room as you go and keep their sizes), drag any edge or corner to resize it, add, edit, duplicate or remove charts, and rename the board. When a chart gets wider than its row allows, the next charts move to the row below. While you edit, clicking a chart doesn't open anything, there's extra room below the last chart, and the page scrolls when you drag near its edge. Nothing changes until you click **Save**, which stores the board and opens it; **Cancel** drops the changes. Templates and **Customize** on the Overview open the same way, as an unsaved draft.
+
+**Set as default** makes a board your Overview: the Overview tab and the dashboard URL open it. **Reset to default Overview** brings back the built-in one. Saving a customized overview makes it your default board.
 
 Charts sit on a grid four units wide (two on tablets, one on phones), and sizes snap to whole units, width × height:
 
@@ -153,7 +186,7 @@ Boards are saved in your Redis, as one JSON string at `redis-tracker:dashboards:
 How it behaves:
 
 - Your app's own server answers it (Express, NestJS, Fastify, Koa, Next.js or plain Node). No extra port, no extra dependency. Dashboard requests never reach your routes and are never counted.
-- Pick how often it refreshes: live (every second), 5 s, 30 s (the default), 1 min, 5 min, 15 min, or off. ↻ refreshes right away. It doesn't refresh while the tab is hidden.
+- Pick how often it refreshes: live (every second), 5 s, 30 s (the default), 1 min, 5 min, 15 min, or off. ↻ refreshes right away. It doesn't refresh while the tab is hidden. A chart under your mouse pointer waits, so what you're reading holds still; it catches up as soon as the pointer leaves.
 - It's dark by default; the theme button switches to light. The browser remembers both choices.
 - It works on any screen size: on tablets and phones the layout stacks, tables scroll sideways and charts keep their proportions.
 - With a username and password, signing in sets an `HttpOnly`, `SameSite=Strict` cookie for 7 days. Changing the password signs everyone out.
@@ -744,7 +777,9 @@ Always skipped:
 
 - `OPTIONS` and `HEAD` requests (change with `ignore.methods`)
 - Next.js link prefetches (`Next-Router-Prefetch`, `Purpose: prefetch` or `Sec-Purpose: prefetch` headers)
+- Next.js client navigation data (an `RSC: 1` header that isn't a page load, or `/_next/data/...`). [The page-view script](#page-views-in-single-page-apps) counts those page changes
 - Socket.IO long-polling requests (`/socket.io/...`)
+- Next.js's own WebSocket in development (`/_next/webpack-hmr`, used for hot reload)
 
 `RPC` and `GRAPHQL` are read from `req.body`, so your app must parse JSON bodies, for example with `express.json()`. When nothing has parsed the body, those calls count as `API`, such as `demo:API:POST:rpc`.
 

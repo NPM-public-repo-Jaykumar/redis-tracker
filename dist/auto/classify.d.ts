@@ -10,6 +10,7 @@ type Res = {
     statusCode: number;
     getHeader(name: string): unknown;
 };
+export declare const BOT: RegExp;
 export declare function classifyRequest(req: Req, res: Res, cfg: AutoConfig, namer: RouteNamer, url?: string | undefined): Hit[];
 export declare function classifyUpgrade(req: IncomingMessage, cfg: AutoConfig, namer: RouteNamer): Hit[];
 export {};
